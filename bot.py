@@ -1,10 +1,12 @@
 import logging
 import os
+from typing import Any
 import discord
 from discord.ext import commands
 from pydantic_ai import CallToolsNode
-from pydantic_ai.messages import ToolCallPart, ThinkingPart
+from pydantic_ai.messages import ToolCallPart, ThinkingPart, ModelMessage
 from pydantic_graph import End, BaseNode
+from pydantic_ai.agent import AgentRunResult
 from mem0 import AsyncMemory
 from models import AgentDependencies
 from mem import config
@@ -27,10 +29,10 @@ MODEL_SETTINGS = {
 class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
-        self.agent = agent.AIAgent
-        self.message_history = []
+        self.message_history: list[ModelMessage] = []  # type: ignore
         
     async def setup_hook(self):
+        self.agent = agent.AgentFactory().create_agent()  # type: ignore
         self.memory = await AsyncMemory.from_config(config)
 
     async def ask_agent(self, ctx: commands.Context):
@@ -70,7 +72,22 @@ class AIBot(commands.Bot): # type: ignore
             logging.debug(f"Agent Result: {result}")
             if result.output and result.output.content:
                 await ctx.send(result.output.content)
-            
+                self.add_message_to_history(result)
+    
+    def add_message_to_history(self, result: AgentRunResult[Any]) -> None:
+        """
+        Add a message to the bot's message history.
+
+        Args:
+            result (AgentRunResult): The result from the agent run.
+        """
+
+        self.message_history.extend(result.new_messages())
+
+        # Limit the message history to the last 20 messages
+        if self.message_history and len(self.message_history) > 20:
+            self.message_history = self.message_history[-20:]
+
     async def on_ready(self):
         if self.user and self.user.id:
             logging.info(f'Logged in as {self.user} (ID: {self.user.id})')
