@@ -1,15 +1,19 @@
 from dataclasses import dataclass
+from typing import Optional
 from pydantic import BaseModel, Field
 from mem0 import AsyncMemory
+from discord.ext import commands
+
 
 @dataclass
 class AgentDependencies:
     user_list: list[str]
     username: str
     user_id: str
-    message_id: str = None
-    memory: AsyncMemory = None
-    memories: list[str] = None
+    message_id: str
+    context:  Optional[commands.Context] = None
+    memory: Optional[AsyncMemory] = None
+    memories: Optional[list[str]] = None
     memory_added: bool = False
 
 class WikipediaSearchResult(BaseModel):

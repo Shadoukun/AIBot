@@ -5,13 +5,11 @@ load_dotenv()
 
 config = {
     "vector_store": {
-        "provider": "qdrant",
+        "provider": "chroma",
         "config": {
-            "collection_name": "chat",
-            "host": "localhost",
-            "port": 6333,
-            "embedding_model_dims": 768,  # Change this according to your local model's dimensions
-        },
+            "collection_name": "memory",
+            "path": "db",
+        }
     },
     "llm": {
         "provider": "ollama",
@@ -32,4 +30,4 @@ config = {
     },
 }
 
-memory_config = MemoryConfig(**config)
+memory_config = MemoryConfig(**config) # type: ignore

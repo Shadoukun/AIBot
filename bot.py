@@ -24,9 +24,9 @@ MODEL_SETTINGS = {
     'temperature': 0.9
 }
 
-class AIBot(commands.Bot):
+class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
-        super().__init__(command_prefix=command_prefix, intents=intents, **options)
+        super().__init__(command_prefix=command_prefix, intents=intents)
         self.agent = agent.AIAgent
         self.message_history = []
         
@@ -42,55 +42,52 @@ class AIBot(commands.Bot):
         """
 
         logging.debug(f"Received message: {ctx.message.content}")
-        msg = util.remove_command_prefix(ctx.message.content, prefix=ctx.prefix)
+        msg = util.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
         
         relevant_memories = await self.memory.search(query=msg, user_id=str(ctx.author.id), limit=5)
         memories = []
         for entry in relevant_memories["results"]:
             memories.append(entry["memory"])
         
+        user_list = []
+        if ctx.guild:
+            user_list = [f'"{member.display_name}"' for member in ctx.guild.members if member != ctx.author]
+
         deps = AgentDependencies(
-            user_list=[f'"{member.display_name}"' for member in ctx.guild.members if member != ctx.author],
+            user_list=user_list,
             username=ctx.author.display_name,
             message_id=str(ctx.message.id),
             user_id=str(ctx.author.id),
+            context=ctx,
             memory=self.memory,
-            memories=memories)
+            memories=memories,
+        )
 
         async with ctx.typing():
-            async with self.agent.iter(msg, deps=deps, 
-                                       model_settings=MODEL_SETTINGS, 
-                                       message_history=self.message_history) as agent_run:
-                
-                while not isinstance(agent_run.next_node, End):
-                    node = await agent_run.next(agent_run.next_node)
-
-                    # send tool call msgs
-                    if isinstance(node, CallToolsNode):
-                        await self.print_messages(ctx, deps, node)
-
-                new_history = agent_run.result.new_messages()
-                logging.debug(f"New Messages: {msg}")
-                util.update_message_history(self.message_history, new_history, max_length=20)
-                
-                await ctx.send(agent_run.result.output)
-
+            result = await self.agent.run(msg, deps=deps, # type: ignore
+                                          model_settings=MODEL_SETTINGS, # type: ignore
+                                          message_history=self.message_history)
+            logging.debug(f"Agent Result: {result}")
+            if result.output and result.output.content:
+                await ctx.send(result.output.content)
+            
     async def on_ready(self):
-        logging.info(f'Logged in as {self.user} (ID: {self.user.id})')
-        logging.info('------')
+        if self.user and self.user.id:
+            logging.info(f'Logged in as {self.user} (ID: {self.user.id})')
+            logging.info('------')
 
     async def on_message(self, message):
         if message.author == self.user:
             return
         
         ctx = await self.get_context(message)
-        if self.user.mentioned_in(message):
+        if self.user and self.user.mentioned_in(message):
             logging.debug(f"Bot Mentioned | {message.content}")
             await self.ask_agent(ctx)
         else:
             await self.process_commands(message)
        
-    async def process_thinking_msg(self, ctx: commands.Context, part: ThinkingPart) -> str: 
+    async def process_thinking_msg(self, ctx: commands.Context, part: ThinkingPart) -> None: 
         if util.print_thinking(ctx):
             msg = part.content
             # discord has a 2000 character limit per message
@@ -98,21 +95,22 @@ class AIBot(commands.Bot):
             for chunk in chunks:
                 await ctx.send(chunk)
 
-    async def print_messages(self, ctx: commands.Context, deps: AgentDependencies, node: BaseNode) -> bool:
-        for part in node.model_response.parts:
-            if isinstance(part, ThinkingPart):
-                await self.process_thinking_msg(ctx, part)
-                continue
+    async def print_messages(self, ctx: commands.Context, deps: AgentDependencies, node: BaseNode) -> None:
+        if isinstance(node, CallToolsNode):
+            for part in node.model_response.parts:
+                if isinstance(part, ThinkingPart):
+                    await self.process_thinking_msg(ctx, part)
+                    continue
 
-            if isinstance(part, ToolCallPart):
-                name = part.tool_name
-                # pydantic seems to uses a final_result tool when it has a structured input. don't print it
-                if name == "final_result":
-                    return
-                else:
-                    logging.debug(f"Tool Call: {name} | Args: {part.args}")
-                    await ctx.send(f"{name}: {part.args}")
-                    return True
+                if isinstance(part, ToolCallPart):
+                    name = part.tool_name
+                    # pydantic seems to uses a final_result tool when it has a structured input. don't print it
+                    if name == "final_result":
+                        return
+                    else:
+                        logging.debug(f"Tool Call: {name} | Args: {part.args}")
+                        await ctx.send(f"{name}: {part.args}")
+                        return
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -128,5 +126,5 @@ async def chat(ctx, *, query: str):
 @bot.command(name="clear_history")
 async def clear_history(ctx):
     logging.debug(f"Clear History Command | {ctx.message.content}")
-    bot.memory = []
+    bot.message_history = []
     await ctx.send("Chat history cleared.")

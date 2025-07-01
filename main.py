@@ -13,4 +13,9 @@ logging.basicConfig(
 TOKEN = os.getenv("TOKEN")
 
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN or "")
+    except Exception as e:
+        logging.error(f"Failed to start the bot: {e}")
+        raise e
+    
