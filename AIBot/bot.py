@@ -65,22 +65,23 @@ class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
         self.message_history: list[ModelMessage] = []  # type: ignore
+        self.watched_channels: list[int] = []
         self.memory_checked_at = datetime.now(timezone.utc)
-        self.seen_messages: list[int] = []  # to track seen messages
+        self.seen_messages: list[int] = []
         self.seen_cleared_at = datetime.now(timezone.utc)
-        self.watched_channels: list[int] = []  # to track watched channels
 
     async def setup_hook(self):
         # create the agents
         self.model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=base_url))
         self.agent = Agent[AgentDependencies, AgentResponse](
             model=self.model,
+            instructions=[default_system_prompt],
+            output_type=AgentResponse, 
+            deps_type=AgentDependencies, 
             tools=[duckduckgo_search_tool(max_results=3), 
                 # duckduckgo_image_search_tool(max_results=3), 
                 add_memory, 
                 wikipedia_search], 
-            output_type=AgentResponse, 
-            deps_type=AgentDependencies, system_prompt=default_system_prompt(ctx=None), 
         )
 
         self.fact_agent = Agent[FactAgentDependencies, FactResponse](
@@ -113,20 +114,10 @@ class AIBot(commands.Bot): # type: ignore
            memories.append(entry["memory"])
            logger.debug(f"Memory: {entry['memory']}")
 
-        user_list = []
-        if ctx.guild:
-           user_list = [f'"{member.display_name}"' for member in ctx.guild.members if member != ctx.author]
-
         deps = AgentDependencies(
-            user_list=user_list,
-            agent_id=str(self.user.id) if self.user and self.user.id else "",
-            username=ctx.author.display_name,
-            message_id=str(ctx.message.id),
-            user_id=str(ctx.author.id),
-            context=ctx,
-            memory=self.memory,
-            memories=memories,
-            bot_channel=self.bot_channel,  # type: ignore
+            bot=self,
+            ctx=ctx,
+            memories=memories
         )
 
         async with ctx.typing():
@@ -137,13 +128,12 @@ class AIBot(commands.Bot): # type: ignore
             logger.debug(f"Agent Result: {result}")
             if result.output and result.output.content:
                 await ctx.send(result.output.content)
-                self.add_message_to_history(result)
-    
-    def add_message_to_history(self, result: AgentRunResult[Any]) -> None:
+                self.add_message_to_chat_history(result)
+
+    def add_message_to_chat_history(self, result: AgentRunResult[Any]) -> None:
         """
         Add a message to the bot's message history.
         """
-
         self.message_history.extend(result.new_messages())
 
         # Limit the message history to the last 20 messages
@@ -163,6 +153,11 @@ class AIBot(commands.Bot): # type: ignore
     async def on_message(self, message):
         if message.author == self.user:
             return
+        
+        # for now ignore messages with URLs
+        if "http://" in message.content or "https://" in message.content:
+            logger.debug("Message contains a URL. Ignoring.")
+            return
 
         ctx = await self.get_context(message)
         if self.user and self.user.mentioned_in(message):
@@ -177,13 +172,17 @@ class AIBot(commands.Bot): # type: ignore
             five_mins_ago = now - timedelta(minutes=5)
 
             msgs = []
-            for channel in self.watched_channels:
-                channel = self.get_channel(channel)
-                if not channel or not isinstance(channel, discord.TextChannel):
+            
+            for c in self.watched_channels:
+                channel = self.get_channel(c)
+                if not isinstance(channel, discord.TextChannel):
                     continue
+
                 async for m in channel.history(after=five_mins_ago):
+                    # if message is from the bot
                     if m.author == self.user:
                         continue
+                    # if message has been seen already
                     if m.id in self.seen_messages:
                         continue
                     else:
@@ -193,6 +192,12 @@ class AIBot(commands.Bot): # type: ignore
                 logger.debug("No new messages found for memory check.")
                 return
             
+            for m in msgs:
+                if m.content.startswith(self.command_prefix):
+                    continue
+                if m.author == self.user:
+                    continue
+
             prompt = (
                 "Does this conversation contain any information worth remembering?\n\n",
                 "<conversation>\n",
@@ -201,10 +206,11 @@ class AIBot(commands.Bot): # type: ignore
             )
 
             logger.debug(f"Random Memory Check | {prompt}")
+            bot_channel = self.get_channel(int(os.getenv("BOT_CHANNEL_ID") or 0))
             deps = FactAgentDependencies(
                 memory=self.memory,
                 memories=[],
-                bot_channel=self.bot_channel if isinstance(self.bot_channel, discord.abc.GuildChannel) else None
+                bot_channel=bot_channel, # type: ignore
             )
 
             result = await self.fact_agent.run(prompt,
@@ -221,6 +227,7 @@ class AIBot(commands.Bot): # type: ignore
                         description="The following facts were extracted from the conversation:",
                         color=discord.Color.blue()
                     )
+                    embed.add_field(name="Facts", value="\n".join(fact.text.strip() for fact in facts), inline=False)
                     await self.bot_channel.send(embed=embed) # type: ignore
             
             for m in msgs:
