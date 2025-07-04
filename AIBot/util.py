@@ -1,3 +1,4 @@
+import asyncio
 import os
 from discord.ext import commands
 
@@ -26,3 +27,13 @@ def update_message_history(history: list[str], new: list[str], max_length: int =
         return history[-max_length:]
     history = history + [m for m in new if m not in history]
     return history
+
+async def memory_timer(bot):
+    while True:
+        await asyncio.sleep(120)  # Wait for 2 minutes
+        await bot.random_memory_check()  # Run the memory check function
+
+async def seen_messages_timer(bot):
+    while True:
+        await asyncio.sleep(1800)  # Wait for 30 minutes
+        bot.seen_messages = []  # Clear the seen messages every 30 minutes

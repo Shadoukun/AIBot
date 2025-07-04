@@ -1,14 +1,16 @@
 import os
 import logging
-from bot import bot
+from AIBot.bot import bot
 from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
 )
+
+logging.getLogger("AIBot").setLevel(logging.DEBUG)
 
 TOKEN = os.getenv("TOKEN")
 
