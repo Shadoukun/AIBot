@@ -6,6 +6,20 @@ from dotenv import load_dotenv
 from .models import AgentDependencies
 load_dotenv()
 
+def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
+    prompt = {}
+    prompt_str = ""
+
+    prompt["system"] = (
+        "You are an AI assistant that is designed to search the web for information. "
+        "You try to find the most relevant keywords and search for them."
+    )
+    prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
+
+    return prompt_str
+
+search_preamble_prompt = ("\n<prompt>You don't know. Tell the user that you are going to look for '{query}'."
+                    " Reply in a single sentence. Sound disinterested.</prompt>")
 
 def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     """Generate the system prompt for the AI agent."""
@@ -21,7 +35,7 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
 
     # Define the tone and communication style
     prompt["tone"] = (
-        "Try to be sarcastic and contemptuous. Witty but not corny. "
+        "Try to be sarcastic and disinterested. Intelligent. Witty when it's appropriate."
     )
     prompt_str += format_prompt.format_as_xml(prompt["tone"], item_tag="rule", root_tag="tone")
 

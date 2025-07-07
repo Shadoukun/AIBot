@@ -3,19 +3,22 @@ import os
 from typing import Any
 import discord
 from discord.ext import commands
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ThinkingPart, ModelMessage
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 from mem0.configs.base import MemoryConfig
+from .duckduckgo import DuckDuckGoResult
 
 from mem0 import AsyncMemory
 from . import util
 from .models import AgentDependencies, AgentResponse, FactAgentDependencies, FactResponse
-from .prompts import default_system_prompt, update_user_prompt, fact_retrieval_prompt
+from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_prompt, search_preamble_prompt
 from .tools import wikipedia_search
 from .duckduckgo import duckduckgo_image_search_tool, duckduckgo_search_tool
+from duckduckgo_search import DDGS
 
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
@@ -69,19 +72,51 @@ class AIBot(commands.Bot): # type: ignore
         self.seen_messages: list[int] = []
         self.seen_cleared_at = datetime.now(timezone.utc)
 
+        # supposedly fixes the 202 rate limit issue 
+        # if instead of constantly instantiating a new client, you reuse the same one
+        self.ddgs_client = DDGS()
+
     async def setup_hook(self):
+        self.memory = await AsyncMemory.from_config(config)
+        self.create_agents()
+
+        self.loop.create_task(util.memory_timer(self))
+        self.loop.create_task(util.seen_messages_timer(self))
+
+    def create_agents(self):
         # create the agents
         self.model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
+        self.openrouter_model = OpenAIModel(
+            'google/gemini-2.5-flash',
+            provider=OpenRouterProvider(api_key=os.getenv("OPENROUTER_API_KEY", "")),
+        )
+
         self.agent = Agent[AgentDependencies, AgentResponse](
             model=self.model,
             instructions=[default_system_prompt],
             output_type=AgentResponse, 
             deps_type=AgentDependencies, 
-            tools=[duckduckgo_search_tool(max_results=3), 
-                # duckduckgo_image_search_tool(max_results=3), 
-                wikipedia_search], 
         )
 
+        @self.agent.tool
+        async def search(ctx: RunContext[AgentDependencies], query: str) -> list[DuckDuckGoResult]:
+            """
+            Search for the given query using the DuckDuckGo search tool.
+            """
+            logger.debug(f"Search Query: {query}")
+            query = query.strip()
+            prompt = search_preamble_prompt.format(query=query) if query else "I don't know what to search for."
+            try:
+                res = await self.search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
+                await ctx.deps.context.send(res.output) # type: ignore
+                results = await self.search_agent.run(query, deps=ctx.deps, output_type=list[DuckDuckGoResult]) # type: ignore
+                if results:
+                    return results.output
+                return []
+            except Exception as e:
+                logger.error(f"Error during search: {e}")
+                return []
+        
         self.fact_agent = Agent[FactAgentDependencies, FactResponse](
             model=self.model,
             tools=[],
@@ -90,10 +125,14 @@ class AIBot(commands.Bot): # type: ignore
             system_prompt=fact_retrieval_prompt(),
         )
 
-        self.memory = await AsyncMemory.from_config(config)
+        self.search_agent = Agent(
+            model=self.openrouter_model,
+            tools=[
+                duckduckgo_search_tool(duckduckgo_client=self.ddgs_client, max_results=3),
+                wikipedia_search
+            ],
+        ) # type: ignore
 
-        self.loop.create_task(util.memory_timer(self))
-        self.loop.create_task(util.seen_messages_timer(self))
 
     async def ask_agent(self, ctx: commands.Context):
         """
@@ -165,76 +204,40 @@ class AIBot(commands.Bot): # type: ignore
             await self.process_commands(message)
 
     async def memory_check(self) -> None:
-            logger.debug("Running memory check...")
-            now = datetime.now(timezone.utc)
-            five_mins_ago = now - timedelta(minutes=5)
+        logger.debug("Running memory check...")
+        after = datetime.now(timezone.utc) - timedelta(minutes=5)
 
-            watched_msgs: dict[int, list[discord.Message]] = {}
-            
-            logger.debug(self.watched_channels)
-            for c in self.watched_channels:
-                watched_msgs[c] = []
-                channel = self.get_channel(c)
-                if not isinstance(channel, discord.TextChannel):
-                    continue
+        # get all messages from the watched channels
+        logger.debug(self.watched_channels)
+        watched_msgs: dict[int, list[discord.Message]] = {}
+        for c in self.watched_channels:
+            channel = self.get_channel(c)
+            if isinstance(channel, discord.TextChannel):
+                watched_msgs[c] = [
+                    m async for m in channel.history(after=after)
+                    if not util.is_bot_announcement(m)
+                    and not m.content.startswith(self.command_prefix)  # type: ignore
+                    and m.id not in self.seen_messages
+                ]
 
-                async for m in channel.history(after=five_mins_ago):
-                    if util.is_bot_announcement(m):
-                        continue
-                    if m.content.startswith(self.command_prefix): # type: ignore
-                        continue
-                    if m.id in self.seen_messages:
-                        continue
-                    else:
-                        watched_msgs[c].append(m)
+        if not watched_msgs:
+            logger.debug("No new messages found for memory check.")
+            return
 
-            if not watched_msgs:
-                logger.debug("No new messages found for memory check.")
-                return
-
-            msgs_to_add = []
-            for channel_id, msgs in watched_msgs.items():
-                result_msgs = []
-                logger.debug(f"Processing {len(msgs)} messages in channel {channel_id}")
-                for m in msgs:
-                    if m.id not in self.seen_messages:
-                        logger.debug(f"New message found for memory check: {m.content}")
-                        self.seen_messages.append(m.id)
-
-                        if self.user and m.author.id == self.user.id:
-                            role = "assistant"
-                        else:
-                            role = "user"
-                        
-                        # Add the message to the memory
-                        msg = {"role": role, "content": m.content}
-                        msgs_to_add.append(msg)
-
-                    res = await self.memory.add(msgs_to_add, agent_id=str(self.user.id) if self.user and self.user.id else "")
-                    if isinstance(res, dict):
-                        results = res.get("results", [])
-                        for result in results:
-                            result_msgs.append(f"Memory: {result['memory']} Event: {result['event']}")
-
-                if result_msgs:
-                    logger.debug(f"Memory results: {result_msgs}")
-                    embed = discord.Embed(
-                        title="Memory Added",
-                        description=f"Added {len(result_msgs)} messages to memory.",
-                        color=discord.Color.blue()
-                    )
-                    truncated_msgs = [msg[:1021] + "..." if len(msg) > 1024 else msg for msg in result_msgs]
-                    embed.add_field(name="Messages", value="\n".join(truncated_msgs), inline=False)
-                    await self.bot_channel.send(embed=embed) # type: ignore
-
-                    
-    async def process_thinking_msg(self, ctx: commands.Context, part: ThinkingPart) -> None: 
-        if util.print_thinking(ctx):
-            msg = part.content
-            # discord has a 2000 character limit per message
-            chunks = [f"```{msg[i:i+2000]}```" for i in range(0, len(msg), 2000)]
+        if res := await util.add_memories(self, watched_msgs):
+            logger.debug(f"Memory results: {res}")
+            chunks = [res[i:i+1024] for i in range(0, len(res), 1024)]
             for chunk in chunks:
-                await ctx.send(chunk)
+                embed = discord.Embed(
+                    title="Memory Added",
+                    description=chunk,
+                    color=discord.Color.blue()
+                )
+
+                if self.bot_channel and \
+                    isinstance(self.bot_channel, discord.TextChannel):
+                    await self.bot_channel.send(embed=embed)
+
 
 intents = discord.Intents.default()
 intents.message_content = True

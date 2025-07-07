@@ -43,21 +43,27 @@ async def seen_messages_timer(bot):
         await asyncio.sleep(1800)  # Wait for 30 minutes
         bot.seen_messages = []  # Clear the seen messages every 30 minutes
 
-async def add_memory(bot, fact: Fact):
-    if fact.text.strip():
-        # add the fact to memory
-        memory_result = await bot.memory.add(
-            fact.text.strip(),
-            agent_id=str(bot.user.id) if bot.user and bot.user.id else "")
-        if memory_result:
-            logger.debug(f"Memory added successfully: {memory_result}")
-            embed = discord.Embed(
-                title="Memory Added",
-                description=f"*{fact.text.strip()}*",
-                color=discord.Color.blue()
-            )
-            
-            await bot.bot_channel.send(embed=embed)
+async def add_memories(bot, messages):
+    '''
+    Adds messages to the bot's memories and returns the results.
+    '''
+    
+    result_msgs = []
+    for channel_id, msgs in messages.items():
+        msgs_to_add = []
+        logger.debug(f"Processing {len(msgs)} messages in channel {channel_id}")
+        msgs_to_add.extend(
+            {"role": "assistant" if bot.user and m.author.id == bot.user.id else "user", "content": m.content}
+            for m in msgs if m.id not in bot.seen_messages and not bot.seen_messages.append(m.id)
+        )
+
+        res = await bot.memory.add(msgs_to_add, agent_id=str(bot.user.id) if bot.user and bot.user.id else "")
+        if isinstance(res, dict):
+            results = res.get("results", [])
+            for result in results:
+                result_msgs.append(f"Memory: {result['memory']} Event: {result['event']}")
+    
+    return result_msgs
 
 def is_bot_announcement(msg) -> bool:
     """

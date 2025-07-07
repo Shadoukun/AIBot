@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import anyio
 import anyio.to_thread
+import discord
 from pydantic import TypeAdapter
 from pydantic_ai import RunContext
 from typing_extensions import TypedDict
@@ -54,24 +55,31 @@ class DuckDuckGoSearchTool:
         Returns:
             The search results.
         """
-        # embed = discord.Embed(
-        #     title="DuckDuckGo Search",
-        #     color=discord.Color.green()
-        # )
-        # embed.add_field(name="\n", value=str(query), inline=False)
-        # await ctx.deps.context.send(embed=embed) # type: ignore
+        try:
+            embed = discord.Embed(
+                title="DuckDuckGo Search",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="\n", value=str(query), inline=False)
+            await ctx.deps.context.send(embed=embed) # type: ignore
 
-        search = functools.partial(self.client.text, max_results=self.max_results, safesearch="Off")
-        run = await anyio.to_thread.run_sync(search, query)
-        results = [
-            {
-                "title": r.get("title", ""),
-                "href": r.get("href", ""),  # Use 'href' for the URL
-                "body": r.get("body", "")  # Use 'body' for the content, or leave empty
-            }
-            for r in run
-        ]
-        return duckduckgo_ta.validate_python(results)
+            search = functools.partial(self.client.text, max_results=self.max_results, safesearch="Off")
+            run = await anyio.to_thread.run_sync(search, query)
+            results = [
+                {
+                    "title": r.get("title", ""),
+                    "href": r.get("href", ""),  # Use 'href' for the URL
+                    "body": r.get("body", "")  # Use 'body' for the content, or leave empty
+                }
+                for r in run
+            ]
+            return duckduckgo_ta.validate_python(results)
+        except Exception as e:
+            # Log the error or handle it as needed
+            print(f"Error during DuckDuckGo search: {e}")
+            await ctx.deps.context.send("DuckDuckGo sucks.")  # type: ignore
+            return []
+        
 
 @dataclass
 class DuckDuckGoImageSearchTool:
