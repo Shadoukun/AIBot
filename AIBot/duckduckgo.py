@@ -55,12 +55,12 @@ class DuckDuckGoSearchTool:
         Returns:
             The search results.
         """
-        embed = discord.Embed(
-            title="DuckDuckGo Search",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="\n", value=str(query), inline=False)
-        await ctx.deps.context.send(embed=embed) # type: ignore
+        # embed = discord.Embed(
+        #     title="DuckDuckGo Search",
+        #     color=discord.Color.green()
+        # )
+        # embed.add_field(name="\n", value=str(query), inline=False)
+        # await ctx.deps.context.send(embed=embed) # type: ignore
 
         search = functools.partial(self.client.text, max_results=self.max_results, safesearch="Off")
         run = await anyio.to_thread.run_sync(search, query)
@@ -89,7 +89,7 @@ class DuckDuckGoImageSearchTool:
         Returns:
             The search results.
         """
-        await ctx.deps.context.send(f"DUCKDUCKGO_IMAGE_SEARCH: {query}")  # type: ignore
+        # await ctx.deps.context.send(f"DUCKDUCKGO_IMAGE_SEARCH: {query}")  # type: ignore
 
         search = functools.partial(self.client.images, max_results=self.max_results, safesearch="Moderate")
         run = await anyio.to_thread.run_sync(search, query)

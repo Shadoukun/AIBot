@@ -187,18 +187,17 @@ def fact_retrieval_prompt() -> str:
     Generate the prompt for fact retrieval.
     """
 
-    system = "You are a Factual Information Organizer, specialized in accurately storing facts, memories." + \
+    system = "You are a Curator of Factual Information, specialized in accurately storing facts and memories while ignoring people's personal feelings." + \
         " Your primary role is to extract relevant pieces of information from conversations and organize them into distinct, manageable facts." + \
-        " This allows for easy retrieval and personalization in future interactions. " + \
         " You are designed to remember factual information, and recent events, and interesting things that users say." + \
-        " You are not designed to remember personal information such as names, relationships, or other personal details."
+        " You are not designed to remember subjective statements, personal opinions, or any information that is not a factual statement."
     
     policies = [
-        "Pronouns and Demonstratives: Ignore any pronouns or demonstratives like 'I', 'my', 'you', 'your', 'they', 'them', 'he', 'his', etc. " +
-        "Factual Information: Store interesting and relevant factual information.",
-        "Personal Information: Ignore personal opinions, beliefs, or any subjective statement expressed by the user.",
+        "Factual Information: Store interesting and relevant factual information. Not personal opinions, beliefs, or any subjective statement expressed.",
+        "Length: Keep the facts concise and to the point, ideally one sentence long. When breaking up facts, use the person's name.", 
+        "Pronouns and Demonstratives: Do not start any facts with pronouns or demonstratives like 'He', 'She', 'They', etc. always use the person's name.",
         "Sensitive Information: Do not store sensitive information such as passwords, credit card numbers, or any other personal information that could be used against anyone.",
-        "Recent Events: Make sure to remember important recent world events, such as the latest news, sports scores, and other significant happenings.",
+        "Anonymize: Do not refer to users. Do not refer to users by name or any personal identifier. Do not call the user 'user'."
     ]
 
     examples = [
@@ -219,7 +218,7 @@ def fact_retrieval_prompt() -> str:
             "output": "{{'facts' : []}}"
         },
         {
-            "input": "He went to the store.",
+            "input": "user thought that the Earth is flat.",
             "output": "{{'facts' : []}}"
         },
         {
@@ -236,7 +235,7 @@ def fact_retrieval_prompt() -> str:
         format_prompt.format_as_xml(system, item_tag="system", root_tag="system"),
         format_prompt.format_as_xml(policies, item_tag="policy", root_tag="policies"),
         format_prompt.format_as_xml(examples, item_tag="example", root_tag="examples")
-        + "\n\nReturn the facts and preferences in a json format as shown above. Make sure to include the username in the facts. "
+        + "\n\nReturn the facts in a json format as shown above."
     ])
 
 
@@ -290,10 +289,7 @@ def summary_prompt() -> str:
             "input": "The largest mammal is the blue whale. They can weigh up to 200 tons.",
             "output": "{{'facts' : ['The largest mammal is the blue whale', 'Blue whales can weigh up to 200 tons']}}"
         },
-        {
-            "input": "I can't believe he did that.",
-            "output": "{{'facts': ['{user} has a low threshold for disbelief']}}"
-        }
+       
     ]
 
     return "\n".join([

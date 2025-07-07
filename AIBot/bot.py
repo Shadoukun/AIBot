@@ -25,12 +25,13 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("MODEL_NAME") or "huihui_ai/qwen3-abliterated:8b"
-base_url = 'http://localhost:11434/v1'
+MODEL_NAME = os.getenv("MODEL_NAME")
+BASE_URL = os.getenv("BASE_URL")
 MODEL_SETTINGS = {
-    'temperature': 0.9
+    'temperature': 0.7
 }
 
+# mem0 config
 config = {
     "vector_store": {
         "provider": "chroma",
@@ -72,7 +73,7 @@ class AIBot(commands.Bot): # type: ignore
 
     async def setup_hook(self):
         # create the agents
-        self.model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=base_url))
+        self.model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
         self.agent = Agent[AgentDependencies, AgentResponse](
             model=self.model,
             instructions=[default_system_prompt],
@@ -165,87 +166,71 @@ class AIBot(commands.Bot): # type: ignore
             await self.ask_agent(ctx)
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
-     
-    async def random_memory_check(self) -> None:
-            
+
+    async def memory_check(self) -> None:
+            logger.debug("Running memory check...")
             now = datetime.now(timezone.utc)
             five_mins_ago = now - timedelta(minutes=5)
 
-            msgs = []
+            watched_msgs: dict[int, list[discord.Message]] = {}
             
+            logger.debug(self.watched_channels)
             for c in self.watched_channels:
+                watched_msgs[c] = []
                 channel = self.get_channel(c)
                 if not isinstance(channel, discord.TextChannel):
                     continue
 
                 async for m in channel.history(after=five_mins_ago):
-                    # if message is from the bot
-                    if m.author == self.user:
+                    if util.is_bot_announcement(m):
                         continue
-                    # if message has been seen already
+                    if m.content.startswith(self.command_prefix): # type: ignore
+                        continue
                     if m.id in self.seen_messages:
                         continue
                     else:
-                        msgs.append(m)
+                        watched_msgs[c].append(m)
 
-            if not msgs:
+            if not watched_msgs:
                 logger.debug("No new messages found for memory check.")
                 return
-            
-            for m in msgs:
-                if m.content.startswith(self.command_prefix):
-                    continue
-                if m.author == self.user:
-                    continue
 
-            prompt = (
-                "Does this conversation contain any information worth remembering?\n\n",
-                "<conversation>\n",
-                    "\n".join([f"<user>: {m.content}" for m in msgs]),
-                "\n</conversation>"
-            )
+            msgs_to_add = []
+            for channel_id, msgs in watched_msgs.items():
+                result_msgs = []
+                logger.debug(f"Processing {len(msgs)} messages in channel {channel_id}")
+                for m in msgs:
+                    if m.id not in self.seen_messages:
+                        logger.debug(f"New message found for memory check: {m.content}")
+                        self.seen_messages.append(m.id)
 
-            logger.debug(f"Random Memory Check | {prompt}")
-            bot_channel = self.get_channel(int(os.getenv("BOT_CHANNEL_ID") or 0))
-            deps = FactAgentDependencies(
-                memory=self.memory,
-                memories=[],
-                bot_channel=bot_channel, # type: ignore
-            )
+                        if self.user and m.author.id == self.user.id:
+                            role = "assistant"
+                        else:
+                            role = "user"
+                        
+                        # Add the message to the memory
+                        msg = {"role": role, "content": m.content}
+                        msgs_to_add.append(msg)
 
-            result = await self.fact_agent.run(prompt,
-                                                 deps=deps,
-                                                 output_type=FactResponse,
-                                                 model_settings={"temperature": 0.4})
-            
-            if result.output and result.output.facts:
-                if facts := [f for f in result.output.facts if f.text.strip()]:
-                    logger.debug("Memory Check Result:")
-                    logger.debug(f"Facts to save: {facts}")
+                    res = await self.memory.add(msgs_to_add, agent_id=str(self.user.id) if self.user and self.user.id else "")
+                    if isinstance(res, dict):
+                        results = res.get("results", [])
+                        for result in results:
+                            result_msgs.append(f"Memory: {result['memory']} Event: {result['event']}")
+
+                if result_msgs:
+                    logger.debug(f"Memory results: {result_msgs}")
                     embed = discord.Embed(
-                        title="Memory Check Result",
-                        description="The following facts were extracted from the conversation:",
+                        title="Memory Added",
+                        description=f"Added {len(result_msgs)} messages to memory.",
                         color=discord.Color.blue()
                     )
-                    embed.add_field(name="Facts", value="\n".join(fact.text.strip() for fact in facts), inline=False)
+                    truncated_msgs = [msg[:1021] + "..." if len(msg) > 1024 else msg for msg in result_msgs]
+                    embed.add_field(name="Messages", value="\n".join(truncated_msgs), inline=False)
                     await self.bot_channel.send(embed=embed) # type: ignore
-            
-            for m in msgs:
-                if m.id in self.seen_messages:
-                    continue
-                else:
-                    self.seen_messages.append(m.id)
-                # for fact in facts:
-                #     if fact.strip():
-                #         # add the fact to memory
-                #         memory_result = await self.memory.add(
-                #             {"role": "user", "content": fact.strip()},
-                #             agent_id=deps.agent_id,
-                #             metadata={"user_id": deps.user_id, "username": deps.username}
-                #         )
-                #         if memory_result:
-                #             logger.debug(f"Memory added successfully: {memory_result}")
 
+                    
     async def process_thinking_msg(self, ctx: commands.Context, part: ThinkingPart) -> None: 
         if util.print_thinking(ctx):
             msg = part.content
@@ -253,28 +238,6 @@ class AIBot(commands.Bot): # type: ignore
             chunks = [f"```{msg[i:i+2000]}```" for i in range(0, len(msg), 2000)]
             for chunk in chunks:
                 await ctx.send(chunk)
-
-    async def print_messages(self, ctx: commands.Context, deps: AgentDependencies, node: BaseNode) -> None:
-        if isinstance(node, CallToolsNode):
-            for part in node.model_response.parts:
-                if isinstance(part, ThinkingPart):
-                    await self.process_thinking_msg(ctx, part)
-                    continue
-
-                if isinstance(part, ToolCallPart):
-                    name = part.tool_name
-                    # pydantic seems to uses a final_result tool when it has a structured input. don't print it
-                    if name == "final_result":
-                        return
-                    else:
-                        logging.debug(f"Tool Call: {name} | Args: {part.args}")
-                        embed = discord.Embed(
-                            title=f"{name}",
-                            color=discord.Color.green()
-                        )
-                        embed.add_field(name="\n", value=str(part.args), inline=False)
-                        await ctx.send(embed=embed)
-                        return
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -299,6 +262,16 @@ async def add_watched_channel(ctx: commands.Context):
     if isinstance(ctx.channel, discord.abc.GuildChannel):
         if ctx.channel.id not in bot.watched_channels:
             bot.watched_channels.append(ctx.channel.id)
-            await ctx.send(f"Added #{ctx.channel.name} to watched channels.")
+            await ctx.send(f"BOT: Added #{ctx.channel.name} to watched channels.")
         else:
-            await ctx.send(f"#{ctx.channel.name} is already in watched channels.")
+            await ctx.send(f"BOT: #{ctx.channel.name} is already in watched channels.")
+
+@bot.command(name="unwatch")
+async def remove_watched_channel(ctx: commands.Context):
+    """Remove the current channel from the watched channels."""
+    if isinstance(ctx.channel, discord.abc.GuildChannel):
+        if ctx.channel.id in bot.watched_channels:
+            bot.watched_channels.remove(ctx.channel.id)
+            await ctx.send(f"BOT: Removed #{ctx.channel.name} from watched channels.")
+        else:
+            await ctx.send(f"BOT: #{ctx.channel.name} is not in watched channels.")
