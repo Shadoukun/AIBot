@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import anyio
 import anyio.to_thread
-import discord
 from pydantic import TypeAdapter
 from pydantic_ai import RunContext
 from typing_extensions import TypedDict

@@ -3,30 +3,28 @@ import os
 from typing import Any
 import discord
 from discord.ext import commands
-from pydantic_ai import Agent, CallToolsNode
-from pydantic_ai.messages import ToolCallPart, ThinkingPart, ModelMessage
-from pydantic_graph import End, BaseNode
+from pydantic_ai import Agent
+from pydantic_ai.messages import ThinkingPart, ModelMessage
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from mem0.configs.base import MemoryConfig
 
 from mem0 import AsyncMemory
+from . import util
 from .models import AgentDependencies, AgentResponse, FactAgentDependencies, FactResponse
 from .prompts import default_system_prompt, update_user_prompt, fact_retrieval_prompt
-from . import util
-from .tools import wikipedia_search, add_memory
+from .tools import wikipedia_search
 from .duckduckgo import duckduckgo_image_search_tool, duckduckgo_search_tool
 
 from dotenv import load_dotenv
-import random
 from datetime import datetime, timedelta, timezone
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("MODEL_NAME")
-BASE_URL = os.getenv("BASE_URL")
+MODEL_NAME = os.getenv("MODEL_NAME") or ""
+BASE_URL = os.getenv("BASE_URL") or "http://localhost:11434/v1"
 MODEL_SETTINGS = {
     'temperature': 0.7
 }
@@ -81,7 +79,6 @@ class AIBot(commands.Bot): # type: ignore
             deps_type=AgentDependencies, 
             tools=[duckduckgo_search_tool(max_results=3), 
                 # duckduckgo_image_search_tool(max_results=3), 
-                add_memory, 
                 wikipedia_search], 
         )
 

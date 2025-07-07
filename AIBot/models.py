@@ -3,7 +3,6 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from mem0 import AsyncMemory
 from discord.ext import commands
-from discord import TextChannel
 from discord.abc import GuildChannel
 
 class AgentDependencies:
@@ -24,7 +23,7 @@ class AgentDependencies:
         self.agent_id = str(bot.user.id) if bot.user else "None"
         self.username = ctx.author.name if ctx.author else "None"
         self.user_id = str(ctx.author.id) if ctx.author else "None"
-        self.ctx = ctx
+        self.context = ctx
         self.memory = bot.memory
         self.memories = memories
         self.message_id = str(ctx.message.id) if ctx.message else "None"

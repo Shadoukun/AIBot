@@ -1,10 +1,8 @@
-from typing import Optional
-import logging
 import discord
 from pydantic_ai import RunContext
 import wikipedia
 from .bot import AgentDependencies
-from .models import MemoryOutput, WikipediaSearchResult
+from .models import WikipediaSearchResult
 
 async def wikipedia_search(ctx: RunContext[AgentDependencies], query: str) -> list[WikipediaSearchResult]:
     """Search Wikipedia for the given query and return the summary of the first ten results."""
