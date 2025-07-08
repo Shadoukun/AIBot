@@ -1,138 +1,41 @@
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import discord
 from discord.ext import commands
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import ThinkingPart, ModelMessage
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.providers.openrouter import OpenRouterProvider
-from mem0.configs.base import MemoryConfig
-from .duckduckgo import DuckDuckGoResult
 
 from mem0 import AsyncMemory
 from . import util
-from .models import AgentDependencies, AgentResponse, FactAgentDependencies, FactResponse
-from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_prompt, search_preamble_prompt
-from .tools import wikipedia_search
-from .duckduckgo import duckduckgo_image_search_tool, duckduckgo_search_tool
-from duckduckgo_search import DDGS
+from .models import AgentDependencies
+from .agents import main_agent, memory_config
 
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("MODEL_NAME") or ""
-BASE_URL = os.getenv("BASE_URL") or "http://localhost:11434/v1"
 MODEL_SETTINGS = {
     'temperature': 0.7
 }
 
-# mem0 config
-config = {
-    "vector_store": {
-        "provider": "chroma",
-        "config": {
-            "collection_name": "memory",
-            "path": "db",
-        }
-    },
-    "llm": {
-        "provider": "ollama",
-        "config": {
-            "model": MODEL_NAME,
-            "temperature": 0.6,
-            "max_tokens": 2000,
-            "ollama_base_url": "http://localhost:11434",
-        },
-    },
-    "embedder": {
-        "provider": "ollama",
-        "config": {
-            "model": "nomic-embed-text:latest",
-            "ollama_base_url": "http://localhost:11434",
-        },
-    },
-    "custom_update_memory_prompt": update_user_prompt(),
-    "custom_fact_extraction_prompt": fact_retrieval_prompt(),
-}
-
-memory_config = MemoryConfig(**config) # type: ignore
-
 class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
-        self.message_history: list[ModelMessage] = []  # type: ignore
-        self.watched_channels: list[int] = []
+        self.agent = main_agent
+        self.message_history:    list[ModelMessage] = []  # type: ignore
+        self.seen_messages:      list[int] = []
+        self.watched_channels:   list[int] = []
+        self.seen_cleared_at   = datetime.now(timezone.utc)
         self.memory_checked_at = datetime.now(timezone.utc)
-        self.seen_messages: list[int] = []
-        self.seen_cleared_at = datetime.now(timezone.utc)
-
-        # supposedly fixes the 202 rate limit issue 
-        # if instead of constantly instantiating a new client, you reuse the same one
-        self.ddgs_client = DDGS()
-
+    
     async def setup_hook(self):
-        self.memory = await AsyncMemory.from_config(config)
-        self.create_agents()
+        self.memory = await AsyncMemory.from_config(memory_config)
 
         self.loop.create_task(util.memory_timer(self))
         self.loop.create_task(util.seen_messages_timer(self))
-
-    def create_agents(self):
-        # create the agents
-        self.model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
-        self.openrouter_model = OpenAIModel(
-            'google/gemini-2.5-flash',
-            provider=OpenRouterProvider(api_key=os.getenv("OPENROUTER_API_KEY", "")),
-        )
-
-        self.agent = Agent[AgentDependencies, AgentResponse](
-            model=self.model,
-            instructions=[default_system_prompt],
-            output_type=AgentResponse, 
-            deps_type=AgentDependencies, 
-        )
-
-        @self.agent.tool
-        async def search(ctx: RunContext[AgentDependencies], query: str) -> list[DuckDuckGoResult]:
-            """
-            Search for the given query using the DuckDuckGo search tool.
-            """
-            logger.debug(f"Search Query: {query}")
-            query = query.strip()
-            prompt = search_preamble_prompt.format(query=query) if query else "I don't know what to search for."
-            try:
-                res = await self.search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
-                await ctx.deps.context.send(res.output) # type: ignore
-                results = await self.search_agent.run(query, deps=ctx.deps, output_type=list[DuckDuckGoResult]) # type: ignore
-                if results:
-                    return results.output
-                return []
-            except Exception as e:
-                logger.error(f"Error during search: {e}")
-                return []
-        
-        self.fact_agent = Agent[FactAgentDependencies, FactResponse](
-            model=self.model,
-            tools=[],
-            output_type=FactResponse,
-            deps_type=FactAgentDependencies,
-            system_prompt=fact_retrieval_prompt(),
-        )
-
-        self.search_agent = Agent(
-            model=self.openrouter_model,
-            tools=[
-                duckduckgo_search_tool(duckduckgo_client=self.ddgs_client, max_results=3),
-                wikipedia_search
-            ],
-        ) # type: ignore
-
 
     async def ask_agent(self, ctx: commands.Context):
         """
@@ -141,7 +44,6 @@ class AIBot(commands.Bot): # type: ignore
         Args:
             ctx (commands.Context): the discord context.
         """
-
         msg = util.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
         user_id = str(self.user.id) if self.user and self.user.id else ""
        
@@ -226,18 +128,16 @@ class AIBot(commands.Bot): # type: ignore
 
         if res := await util.add_memories(self, watched_msgs):
             logger.debug(f"Memory results: {res}")
-            chunks = [res[i:i+1024] for i in range(0, len(res), 1024)]
+            chunks = [res[i:i + 5] for i in range(0, len(res), 5)]
             for chunk in chunks:
                 embed = discord.Embed(
-                    title="Memory Added",
-                    description=chunk,
-                    color=discord.Color.blue()
+                    title="Memory Update",
+                    description="\n\n".join(chunk),
+                    color=discord.Color.green()
                 )
 
-                if self.bot_channel and \
-                    isinstance(self.bot_channel, discord.TextChannel):
+                if self.bot_channel and isinstance(self.bot_channel, discord.TextChannel):
                     await self.bot_channel.send(embed=embed)
-
 
 intents = discord.Intents.default()
 intents.message_content = True

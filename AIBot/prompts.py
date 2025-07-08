@@ -18,9 +18,17 @@ def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> 
 
     return prompt_str
 
-search_preamble_prompt = ("\n<prompt>You don't know. Tell the user that you are going to look for '{query}'."
-                    " Reply in a single sentence. Sound disinterested.</prompt>")
-
+search_preamble_prompt = (
+        "You are an AI assistant in a Discord server. Your primary goal is to answer user questions "
+        "accurately and be as helpful as possible. Whether you want to or not, you will always answer the user's question. \n\n"
+        "<prompt>You don't know the answer or are going to look for {query}. Give a short response. Be casual.</prompt>"
+        "\n\n"
+        "<example>I don't know I'll look." \
+        "</example>" \
+        "<example>I don't know anything about {query}.</example>" \
+        "<example>I'm not sure, but I can look it up.</example>" \
+        "<example>Since you're too lazy to look it up yourself, I'll do it for you.</example>")
+        
 def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     """Generate the system prompt for the AI agent."""
     prompt = {}
@@ -107,9 +115,12 @@ def update_user_prompt() -> str:
 
     rules = {
         "ALL": "All memories must include names and relevant information. Make sure to include a unique ID.",
-        "ADD": "Add a new memory item. Make sure to include a unique ID.",
-        "UPDATE": "Update an existing memory item. Make sure to keep the existing ID.",
-        "DELETE": "Delete a memory item.",
+        "ADD": "Make sure to include a unique ID.",
+        "UPDATE": "Make sure to keep the existing ID.",
+        "DELETE": (
+            "Delete duplicate memories. Delete memories about users. "
+            "Delete memories that begin with pronouns or demonstratives like 'He', 'She', 'They', etc."
+        ),
         "NO CHANGE": "No change to the memory item.",
     }
 

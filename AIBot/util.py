@@ -4,7 +4,6 @@ import discord
 from discord.ext import commands
 import logging
 
-from AIBot.models import Fact
 logger = logging.getLogger(__name__)
 
 PRINT_THINKING = os.getenv("PRINT_THINKING", "True").lower() 
@@ -35,7 +34,7 @@ def update_message_history(history: list[str], new: list[str], max_length: int =
 
 async def memory_timer(bot):
     while True:
-        await asyncio.sleep(120)  # Wait for 2 minutes
+        await asyncio.sleep(300)  # Wait for 5 minutes
         await bot.memory_check()  # Run the memory check function
 
 async def seen_messages_timer(bot):
@@ -43,10 +42,13 @@ async def seen_messages_timer(bot):
         await asyncio.sleep(1800)  # Wait for 30 minutes
         bot.seen_messages = []  # Clear the seen messages every 30 minutes
 
-async def add_memories(bot, messages):
+async def add_memories(bot, messages) -> list[str]:
     '''
     Adds messages to the bot's memories and returns the results.
     '''
+    if not messages:
+        logger.debug("No messages to add to memory.")
+        return []
     
     result_msgs = []
     for channel_id, msgs in messages.items():
