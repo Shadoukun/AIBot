@@ -9,8 +9,8 @@ from pydantic_ai.agent import AgentRunResult
 
 from mem0 import AsyncMemory
 from . import util
-from .models import AgentDependencies
-from .agents import main_agent, memory_config
+from .models import AgentDependencies, Fact, FactResponse
+from .agents import main_agent, memory_agent, memory_config
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -25,6 +25,7 @@ class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
         self.agent = main_agent
+        self.memory_agent = memory_agent
         self.message_history:    list[ModelMessage] = []  # type: ignore
         self.seen_messages:      list[int] = []
         self.watched_channels:   list[int] = []
@@ -50,8 +51,10 @@ class AIBot(commands.Bot): # type: ignore
         memories = []
         memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=15)
         for entry in memory_results["results"]:
-           memories.append(entry["memory"])
-           logger.debug(f"Memory: {entry['memory']}")
+            if entry and "memory" in entry:
+                logger.debug(f"Memory: {entry['memory']}")
+                m = entry["memory"].format(user=ctx.author.display_name if ctx.author else "User")
+                memories.append(m)
 
         deps = AgentDependencies(
             bot=self,
@@ -105,8 +108,8 @@ class AIBot(commands.Bot): # type: ignore
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
 
-    async def memory_check(self) -> None:
-        logger.debug("Running memory check...")
+    async def add_memories_task(self) -> None:
+        logger.debug("Running memory task...")
         after = datetime.now(timezone.utc) - timedelta(minutes=5)
 
         # get all messages from the watched channels
@@ -121,12 +124,23 @@ class AIBot(commands.Bot): # type: ignore
                     and not m.content.startswith(self.command_prefix)  # type: ignore
                     and m.id not in self.seen_messages
                 ]
-
+        
         if not watched_msgs:
             logger.debug("No new messages found for memory check.")
             return
+        
+        # add the IDs of the messages to the seen_messages list
+        for channel_id, msgs in watched_msgs.items():
+            for msg in msgs:
+                self.seen_messages.append(msg.id)
+       
+        # checks each channels messages for facts, returns a {channel_id: FactResponse}
+        fact_res: dict[int, FactResponse] = await util.check_facts(self, watched_msgs)
+        if not fact_res:
+            logger.debug("No facts found in watched messages.")
+            return
 
-        if res := await util.add_memories(self, watched_msgs):
+        if res := await util.add_memories(self, fact_res):
             logger.debug(f"Memory results: {res}")
             chunks = [res[i:i + 5] for i in range(0, len(res), 5)]
             for chunk in chunks:

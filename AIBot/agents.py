@@ -9,7 +9,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 import wikipedia
 
 from .duckduckgo import duckduckgo_search_tool
-from .models import AgentDependencies, AgentResponse, WikipediaSearchResult
+from .models import AgentDependencies, AgentResponse, FactResponse, WikipediaSearchResult
 from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_prompt, search_preamble_prompt
 from dotenv import load_dotenv
 load_dotenv()
@@ -71,6 +71,13 @@ search_agent = Agent[AgentDependencies, AgentResponse](
             tools=[duckduckgo_search_tool(duckduckgo_client=ddgs_client, max_results=3)],
             deps_type=AgentDependencies,
             output_type=AgentResponse,
+        )
+
+memory_agent = Agent[AgentDependencies, FactResponse](
+            model=local_model,
+            instructions=[fact_retrieval_prompt],
+            output_type=FactResponse,
+            deps_type=AgentDependencies,
         )
 
 @main_agent.tool

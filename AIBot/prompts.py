@@ -207,6 +207,26 @@ def update_user_prompt() -> str:
     "\n".join(examples)
 ])
 
+def memory_fact_prompt(messages: list[dict]) -> str:
+    prompt = (
+    "Does the following conversation contain any information or facts that are worth remembering?\n\n"
+    "<conversation>{conversation}</conversation> \n\n"
+    "If it does, extract the facts and return them in a JSON format as shown below. "
+    "If it does not, return an empty list.\n\n") \
+    .format(conversation="\n".join(f"{m['user_id']}: {m['content']}" for m in messages))
+    
+    prompt = prompt + (
+        "<facts>\n"
+        "    <fact>\n"
+        "        <content>{content}</content>\n"
+        "        <user_id>{user_id}</user_id>\n"
+        "    </fact>\n"
+        "</facts>\n\n"
+        "Make sure to include the user's ID in the facts. "
+    )
+
+    return prompt
+
 def fact_retrieval_prompt() -> str:
     """
     Generate the prompt for fact retrieval.

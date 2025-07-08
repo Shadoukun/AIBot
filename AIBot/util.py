@@ -3,6 +3,8 @@ import os
 import discord
 from discord.ext import commands
 import logging
+from .prompts import memory_fact_prompt
+from .models import FactResponse
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +37,43 @@ def update_message_history(history: list[str], new: list[str], max_length: int =
 async def memory_timer(bot):
     while True:
         await asyncio.sleep(300)  # Wait for 5 minutes
-        await bot.memory_check()  # Run the memory check function
+        await bot.add_memories_task()  # Run the memory check function
 
 async def seen_messages_timer(bot):
     while True:
         await asyncio.sleep(1800)  # Wait for 30 minutes
         bot.seen_messages = []  # Clear the seen messages every 30 minutes
 
-async def add_memories(bot, messages) -> list[str]:
+async def check_facts(bot, messages) -> dict[int, FactResponse]:
+    """
+    Check the messages for any facts that should be remembered.
+    """
+    if not messages:
+        return {}
+
+    parsed: dict[int, list[dict[str, str]]] = {}
+    for channel_id, msgs in messages.items():
+        parsed[channel_id] = []
+        logger.debug(f"Checking {len(msgs)} for facts in channel {channel_id}")
+        for msg in msgs:
+            parsed[channel_id].append({"role": "assistant" if bot.user and msg.author.id == bot.user.id else "user", 
+                 "content": msg.content, 
+                 "user_id": str(msg.author.id)})
+    
+    print(parsed)
+    output = {}
+    for c, msgs in parsed.items():
+        prompt = memory_fact_prompt(msgs)
+        res = await bot.memory_agent.run(prompt, deps=None, output_type=FactResponse)
+        if res:
+            output[c] = res.output
+
+    if output:
+        return output
+
+    return {}
+
+async def add_memories(bot, messages: dict[int, FactResponse]) -> list[str]:
     '''
     Adds messages to the bot's memories and returns the results.
     '''
@@ -53,13 +84,15 @@ async def add_memories(bot, messages) -> list[str]:
     result_msgs = []
     for channel_id, msgs in messages.items():
         msgs_to_add = []
-        logger.debug(f"Processing {len(msgs)} messages in channel {channel_id}")
+        logger.debug(f"add_memories | Processing {len(msgs.facts)} facts in channel {channel_id}")
         msgs_to_add.extend(
-            {"role": "assistant" if bot.user and m.author.id == bot.user.id else "user", "content": m.content}
-            for m in msgs if m.id not in bot.seen_messages and not bot.seen_messages.append(m.id)
+            {"role": "assistant" if bot.user and m.user_id == bot.user.id else "user", "content": m.content}
+            for m in msgs.facts if m.user_id not in bot.seen_messages and not bot.seen_messages.append(m.user_id)
         )
 
-        res = await bot.memory.add(msgs_to_add, agent_id=str(bot.user.id) if bot.user and bot.user.id else "")
+        res = await bot.memory.add(msgs_to_add, 
+                                   agent_id=str(bot.user.id) if bot.user and bot.user.id else "", 
+                                   metadata={"user_id": str(bot.user.id) if bot.user and bot.user.id else ""})
         if isinstance(res, dict):
             results = res.get("results", [])
             for result in results:

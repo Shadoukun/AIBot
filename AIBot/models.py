@@ -38,6 +38,16 @@ class AgentResponse(BaseModel):
         """Return a string representation of the AgentResponse."""
         return self.content.strip() if self.content else ""
 
+class Fact(BaseModel):
+    content: str = Field(..., description="The content of the fact.")
+    user_id: str = Field(..., description="The ID of the user who provided the fact.")
+
+class FactResponse(BaseModel):
+    facts: list[Fact] = Field(default_factory=list, description="A list of facts extracted from the input text.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the FactResponse."""
+        return ", ".join([f"{fact.content} (User ID: {fact.user_id})" for fact in self.facts]).strip() if self.facts else ""
 
 class WikipediaSearchResult(BaseModel):
     title: str
