@@ -110,21 +110,8 @@ class AIBot(commands.Bot): # type: ignore
 
     async def add_memories_task(self) -> None:
         logger.debug("Running memory task...")
-        after = datetime.now(timezone.utc) - timedelta(minutes=5)
 
-        # get all messages from the watched channels
-        logger.debug(self.watched_channels)
-        watched_msgs: dict[int, list[discord.Message]] = {}
-        for c in self.watched_channels:
-            channel = self.get_channel(c)
-            if isinstance(channel, discord.TextChannel):
-                watched_msgs[c] = [
-                    m async for m in channel.history(after=after)
-                    if not util.is_bot_announcement(m)
-                    and not m.content.startswith(self.command_prefix)  # type: ignore
-                    and m.id not in self.seen_messages
-                ]
-        
+        watched_msgs = await util.check_watched_channels(self)
         if not watched_msgs:
             logger.debug("No new messages found for memory check.")
             return
@@ -134,13 +121,10 @@ class AIBot(commands.Bot): # type: ignore
             for msg in msgs:
                 self.seen_messages.append(msg.id)
        
-        # checks each channels messages for facts, returns a {channel_id: FactResponse}
-        fact_res: dict[int, FactResponse] = await util.check_facts(self, watched_msgs)
-        if not fact_res:
-            logger.debug("No facts found in watched messages.")
-            return
+        # Change bot status to busy
+        await self.change_presence(activity=discord.Game(name="Updating Memory..."), status=discord.Status.dnd)
 
-        if res := await util.add_memories(self, fact_res):
+        if res := await util.add_memories(self, watched_msgs):
             logger.debug(f"Memory results: {res}")
             chunks = [res[i:i + 5] for i in range(0, len(res), 5)]
             for chunk in chunks:
@@ -152,6 +136,9 @@ class AIBot(commands.Bot): # type: ignore
 
                 if self.bot_channel and isinstance(self.bot_channel, discord.TextChannel):
                     await self.bot_channel.send(embed=embed)
+
+        # reset the bot status
+        await self.change_presence(activity=None, status=discord.Status.online)
 
 intents = discord.Intents.default()
 intents.message_content = True

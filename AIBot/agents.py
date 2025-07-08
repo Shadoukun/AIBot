@@ -91,7 +91,6 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentRespons
     res = await search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
    
     try:
-        await ctx.deps.context.send(res.output) # type: ignore
         results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse) # type: ignore
         if results:
             return results.output

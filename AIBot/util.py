@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 import os
 import discord
 from discord.ext import commands
@@ -36,7 +37,7 @@ def update_message_history(history: list[str], new: list[str], max_length: int =
 
 async def memory_timer(bot):
     while True:
-        await asyncio.sleep(300)  # Wait for 5 minutes
+        await asyncio.sleep(60)  # Wait for 5 minutes
         await bot.add_memories_task()  # Run the memory check function
 
 async def seen_messages_timer(bot):
@@ -73,26 +74,61 @@ async def check_facts(bot, messages) -> dict[int, FactResponse]:
 
     return {}
 
-async def add_memories(bot, messages: dict[int, FactResponse]) -> list[str]:
+def format_memory_messages(messages: dict[int, FactResponse]) -> list[dict[str, str]]:
+    """
+    Format the messages for memory addition.
+    """
+    formatted = []
+    for channel_id, msgs in messages.items():
+        for fact in msgs.facts:
+            formatted.append({
+                "role": "assistant" if fact.user_id == str(channel_id) else "user",
+                "content": fact.content,
+                "user_id": fact.user_id
+            })
+    return formatted
+
+async def check_watched_channels(bot) -> dict[int, list[discord.Message]]:
+    logger.debug("Checking watched channels for new messages...")
+    after = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    logger.debug(bot.watched_channels)
+    watched_msgs: dict[int, list[discord.Message]] = {}
+    for c in bot.watched_channels:
+        channel = bot.get_channel(c)
+        if isinstance(channel, discord.TextChannel):
+            watched_msgs[c] = [
+                m async for m in channel.history(after=after)
+                if not is_bot_announcement(m)
+                and not m.content.startswith(bot.command_prefix)  # type: ignore
+                and m.id not in bot.seen_messages
+            ]
+
+    return watched_msgs
+
+async def add_memories(bot, messages) -> list[str]:
     '''
     Adds messages to the bot's memories and returns the results.
     '''
-    if not messages:
-        logger.debug("No messages to add to memory.")
+    # checks each channels messages for facts, returns a {channel_id: FactResponse}
+    fact_res: dict[int, FactResponse] = await check_facts(bot, messages)
+    if not fact_res:
+        logger.debug("No facts found in watched messages.")
         return []
-    
+
     result_msgs = []
     for channel_id, msgs in messages.items():
         msgs_to_add = []
         logger.debug(f"add_memories | Processing {len(msgs.facts)} facts in channel {channel_id}")
         msgs_to_add.extend(
             {"role": "assistant" if bot.user and m.user_id == bot.user.id else "user", "content": m.content}
-            for m in msgs.facts if m.user_id not in bot.seen_messages and not bot.seen_messages.append(m.user_id)
+            for m in msgs.facts
         )
-
+        print(msgs_to_add)
         res = await bot.memory.add(msgs_to_add, 
                                    agent_id=str(bot.user.id) if bot.user and bot.user.id else "", 
                                    metadata={"user_id": str(bot.user.id) if bot.user and bot.user.id else ""})
+        
         if isinstance(res, dict):
             results = res.get("results", [])
             for result in results:
