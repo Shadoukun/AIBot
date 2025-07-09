@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_SETTINGS = config.get("MODEL_SETTINGS", {})
 
-class AIBot(commands.Bot): # type: ignore
+class AIBot(commands.Bot, util.AgentUtilities): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
         
@@ -36,59 +37,15 @@ class AIBot(commands.Bot): # type: ignore
     async def setup_hook(self):
         self.memory = await AsyncMemory.from_config(memory_config)
 
-        self.loop.create_task(util.memory_timer(self))
-        self.loop.create_task(util.seen_messages_timer(self))
-
-    async def ask_agent(self, ctx: commands.Context):
-        """
-        Ask the AI agent a question.
-
-        Args:
-            ctx (commands.Context): the discord context.
-        """
-        async with ctx.typing():
-            user_id = str(self.user.id) if self.user and self.user.id else ""
-            msg = util.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
-        
-            memories = []
-            memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
-            for entry in memory_results["results"]:
-                if entry and "memory" in entry:
-                    logger.debug(f"Memory: {entry['memory']}")
-                    m = entry["memory"].format(user=ctx.author.display_name if ctx.author else "User")
-                    memories.append(m)
-
-            deps = AgentDependencies(bot=self, ctx=ctx, memories=memories)
-            result = await self.agent.run(msg, deps=deps, # type: ignore
-                                          model_settings=MODEL_SETTINGS, # type: ignore
-                                          message_history=self.message_history)
-            
-            self.add_message_to_chat_history(result)
-
-            if result.output and result.output.content:
-                logger.debug(f"Agent Result: {result.output}")
-                await ctx.send(result.output.content)
-            
-    def add_message_to_chat_history(self, result: AgentRunResult[Any]) -> None:
-        """
-        Add a message to the bot's message history.
-        """
-        self.message_history.extend(result.new_messages())
-
-        # Limit the message history to the last 20 messages
-        if self.message_history and len(self.message_history) > 20:
-            self.message_history = self.message_history[-20:]
-        
-        logger.debug("Message History:\n\n")
-        for msg in self.message_history:
-            logger.debug(msg)
+        self.loop.create_task(memory_timer(self))
+        self.loop.create_task(seen_messages_timer(self))
 
     async def on_ready(self):
         if self.user and self.user.id:
             logger.info(f'Logged in as {self.user} (ID: {self.user.id})')
             logger.info('------')
         self.bot_channel = self.get_channel(int(config.get("BOT_CHANNEL_ID", 0)))
-
+    
     async def on_message(self, message):
         if message.author == self.user:
             return
@@ -105,6 +62,35 @@ class AIBot(commands.Bot): # type: ignore
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
 
+    async def ask_agent(self, ctx: commands.Context):
+        """
+        Ask the AI agent a question.
+
+        Args:
+            ctx (commands.Context): the discord context.
+        """
+        async with ctx.typing():
+            user_id = str(self.user.id) if self.user and self.user.id else ""
+            msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
+        
+            memories = []
+            memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
+            for entry in memory_results["results"]:
+                if entry and "memory" in entry:
+                    logger.debug(f"Memory: {entry['memory']}")
+                    memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
+
+            deps = AgentDependencies(bot=self, ctx=ctx, memories=memories)
+            result = await self.agent.run(msg, deps=deps, # type: ignore
+                                          model_settings=MODEL_SETTINGS, # type: ignore
+                                          message_history=self.message_history)
+            
+            self.add_message_to_chat_history(result)
+
+            if result.output and result.output.content:
+                logger.debug(f"Agent Result: {result.output}")
+                await ctx.send(result.output.content)
+            
     async def add_memories_task(self) -> None:
         logger.debug("Running memory task...")
 
@@ -122,7 +108,7 @@ class AIBot(commands.Bot): # type: ignore
         await self.change_presence(activity=discord.Game(name="Updating Memory..."), status=discord.Status.dnd)
 
         # add memories
-        if res := await util.add_memories(self, watched_msgs):
+        if res := await self.add_memories(watched_msgs):
             added = [f"**Memory:** {result['memory']} **Event:** {result['event']}" for result in res]
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
@@ -137,6 +123,31 @@ class AIBot(commands.Bot): # type: ignore
 
         # reset the bot status
         await self.change_presence(activity=None, status=discord.Status.online)
+    
+    def add_message_to_chat_history(self, result: AgentRunResult[Any]) -> None:
+        """
+        Add a message to the bot's message history.
+        """
+        self.message_history.extend(result.new_messages())
+
+        # Limit the message history to the last 20 messages
+        if self.message_history and len(self.message_history) > 20:
+            self.message_history = self.message_history[-20:]
+        
+        logger.debug("Message History:\n\n")
+        for msg in self.message_history:
+            logger.debug(msg)
+
+
+async def memory_timer(bot):
+    while True:
+        await asyncio.sleep(300)  # Wait for 5 minutes
+        await bot.add_memories_task()  # Run the memory check function
+
+async def seen_messages_timer(bot):
+    while True:
+        await asyncio.sleep(1800)  # Wait for 30 minutes
+        bot.seen_messages = []  # Clear the seen messages every 30 minutes
 
 intents = discord.Intents.default()
 intents.message_content = True

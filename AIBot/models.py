@@ -39,6 +39,7 @@ class AgentResponse(BaseModel):
         return self.content.strip() if self.content else ""
 
 class Fact(BaseModel):
+    topic: str = Field(..., description="The topic or subject of the fact. one to three words.")
     content: str = Field(..., description="The content of the fact.")
     user_id: str = Field(..., description="The ID of the user who provided the fact.")
 
