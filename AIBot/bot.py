@@ -129,12 +129,7 @@ class AIBot(commands.Bot): # type: ignore
 
         # add memories
         if res := await util.add_memories(self, watched_msgs):
-            added = []
-            if isinstance(res, dict) and (results := res.get("results", [])):
-                for result in results:
-                    added.append(f"**Memory:** {result['memory']} **Event:** {result['event']}")
-
-            logger.debug(f"Memory results: \n {added}")
+            added = [f"**Memory:** {result['memory']} **Event:** {result['event']}" for result in res]
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
                 embed = discord.Embed(
