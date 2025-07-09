@@ -1,8 +1,6 @@
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any
-import chromadb
 import discord
 from discord.ext import commands
 from pydantic_ai.messages import ModelMessage
@@ -15,16 +13,12 @@ import umap
 from . import util
 from .models import AgentDependencies
 from .agents import main_agent, memory_agent, memory_config
-
-from dotenv import load_dotenv
+from .config import config
 import io
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MODEL_SETTINGS = {
-    'temperature': 0.7
-}
+MODEL_SETTINGS = config.get("MODEL_SETTINGS", {})
 
 class AIBot(commands.Bot): # type: ignore
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
@@ -93,7 +87,7 @@ class AIBot(commands.Bot): # type: ignore
         if self.user and self.user.id:
             logger.info(f'Logged in as {self.user} (ID: {self.user.id})')
             logger.info('------')
-        self.bot_channel = self.get_channel(int(os.getenv("BOT_CHANNEL_ID") or 0))
+        self.bot_channel = self.get_channel(int(config.get("BOT_CHANNEL_ID", 0)))
 
     async def on_message(self, message):
         if message.author == self.user:

@@ -1,10 +1,8 @@
 import logging
 from typing import Optional
 from pydantic_ai import RunContext, format_prompt
-from dotenv import load_dotenv
 
 from .models import AgentDependencies
-load_dotenv()
 
 def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     prompt = {}

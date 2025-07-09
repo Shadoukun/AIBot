@@ -11,13 +11,12 @@ import wikipedia
 from .duckduckgo import duckduckgo_search_tool
 from .models import AgentDependencies, AgentResponse, FactResponse, WikipediaSearchResult
 from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_prompt, search_preamble_prompt
-from dotenv import load_dotenv
-load_dotenv()
+from .config import config
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = os.getenv("MODEL_NAME") or ""
-BASE_URL = os.getenv("BASE_URL") or "http://localhost:11434/v1"
+MODEL_NAME = config.get("MODEL_NAME", "google/gemini-2.5-flash")
+BASE_URL = config.get("BASE_URL", "http://localhost:11434/v1")
 
 # mem0 config
 memory_config = {

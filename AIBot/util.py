@@ -1,16 +1,13 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-import os
 from typing import Any, Union
 import discord
-from discord.ext import commands
 import logging
 from .prompts import memory_fact_prompt
 from .models import FactResponse
 
 logger = logging.getLogger(__name__)
 
-PRINT_THINKING = os.getenv("PRINT_THINKING", "True").lower() 
 
 def remove_command_prefix(msg, prefix='!') -> str:
     """
@@ -19,13 +16,6 @@ def remove_command_prefix(msg, prefix='!') -> str:
     if msg.startswith(prefix):
         msg = " ".join(msg.split()[1:])
     return msg
-
-def print_thinking(ctx: commands.Context) -> bool:
-    """Print the thinking node if PRINT_THINKING is enabled."""
-    if PRINT_THINKING == "true" or ctx.message.content.endswith("/printthink"):
-        return True
-    
-    return False
 
 def update_message_history(history: list[str], new: list[str], max_length: int = 20) -> list[str]:
     """
