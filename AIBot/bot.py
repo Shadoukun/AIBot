@@ -49,13 +49,13 @@ class AIBot(commands.Bot): # type: ignore
         user_id = str(self.user.id) if self.user and self.user.id else ""
        
         memories = []
-        memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=15)
+        memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
         for entry in memory_results["results"]:
             if entry and "memory" in entry:
                 logger.debug(f"Memory: {entry['memory']}")
                 m = entry["memory"].format(user=ctx.author.display_name if ctx.author else "User")
                 memories.append(m)
-
+    
         deps = AgentDependencies(
             bot=self,
             ctx=ctx,
@@ -163,7 +163,7 @@ async def add_watched_channel(ctx: commands.Context):
     if isinstance(ctx.channel, discord.abc.GuildChannel):
         if ctx.channel.id not in bot.watched_channels:
             bot.watched_channels.append(ctx.channel.id)
-            await ctx.send(f"BOT: Added #{ctx.channel.name} to watched channels.")
+            await ctx.message.add_reaction("✅")
         else:
             await ctx.send(f"BOT: #{ctx.channel.name} is already in watched channels.")
 
