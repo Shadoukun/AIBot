@@ -87,7 +87,7 @@ async def add_memories(bot, messages: dict[int, list[discord.Message]]) -> list[
         logger.debug(f"add_memories | Processing {len(msgs.facts)} facts in channel {channel_id}")
         
         msgs_to_add = []
-        msgs_to_add.append({"role": "assistant" if bot.user and m.user_id == bot.user.id else "user", 
+        msgs_to_add.extend({"role": "assistant" if bot.user and m.user_id == bot.user.id else "user", 
                             "content": m.content, 
                             "user_id": m.user_id}
                             for m in msgs.facts)

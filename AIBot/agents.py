@@ -80,15 +80,17 @@ memory_agent = Agent[AgentDependencies, FactResponse](
             deps_type=AgentDependencies,
         )
 
-@main_agent.tool
+@main_agent.tool(retries=0)
 async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentResponse:
     """
     Search for the given query using the DuckDuckGo search tool.
     """
     logger.debug(f"Search Query: {query}")
     query = query.strip()
+
+    # send the user message before the search
     prompt = search_preamble_prompt.format(query=query) if query else "I don't know what to search for."
-    res = await search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
+    await search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
    
     try:
         results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse) # type: ignore
@@ -99,7 +101,7 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentRespons
         logger.error(f"Error during search: {e}")
         return AgentResponse(content="No results found.")
 
-@search_agent.tool
+@search_agent.tool(retries=1)
 async def wikipedia_search(ctx: RunContext[AgentDependencies], query: str) -> list[WikipediaSearchResult]:
     """Search Wikipedia for the given query and return the summary of the first ten results."""
     # if ctx.deps.context:

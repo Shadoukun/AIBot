@@ -22,7 +22,7 @@ class AgentDependencies:
         self.user_list = [f'"{member.display_name}"' for member in ctx.guild.members if member != ctx.author] # type: ignore
         self.user_id = str(ctx.author.id if ctx.author else "None")
         self.agent_id = str(bot.user.id) if bot.user else "None"
-        self.username = ctx.author.name if ctx.author else "None"
+        self.username = ctx.author.display_name if ctx.author else "None"
         self.user_id = str(ctx.author.id) if ctx.author else "None"
         self.context = ctx
         self.memory = bot.memory
