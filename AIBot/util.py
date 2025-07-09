@@ -1,22 +1,27 @@
 import discord
 import logging
-from typing import Any, Union
+from typing import Any, Callable
 from datetime import datetime, timedelta, timezone
 from mem0 import AsyncMemory
 from pydantic_ai import Agent
 
-from .prompts import memory_fact_prompt
+from .prompts import memory_prompt
 from .models import AgentDependencies, AgentResponse, FactResponse
 
 logger = logging.getLogger(__name__)
 
 class AgentUtilities:
+    """ A mixin class that provides utility methods for AIBot"""
 
-    # inherited attributes
+    # attributes that the main bot class will have
     user: discord.User
+    watched_channels: list[int]
+    command_prefix: str
     agent: Agent[AgentDependencies, AgentResponse]
     memory_agent: Agent[AgentDependencies, FactResponse]
     memory: AsyncMemory
+
+    get_channel: Callable[[int], discord.abc.GuildChannel | None]
 
     @staticmethod
     def remove_command_prefix(msg, prefix='!') -> str:
@@ -52,7 +57,7 @@ class AgentUtilities:
     
         output = {}
         for c, msgs in parsed.items():
-            prompt = memory_fact_prompt(msgs)
+            prompt = memory_prompt(msgs)
             logger.debug(f"check_facts | Running memory agent for channel {c}")
             res = await self.memory_agent.run(prompt, deps=None, output_type=FactResponse) # type: ignore
             if res:
@@ -62,6 +67,29 @@ class AgentUtilities:
             return output
 
         return {}
+    
+    @staticmethod
+    def format_memory_messages(messages: dict[int, FactResponse]) -> list[dict[str, str]]:
+        """
+        Format the messages for memory addition.
+        """
+        formatted = []
+        for channel_id, msgs in messages.items():
+            for fact in msgs.facts:
+                formatted.append({
+                    "role": "assistant" if fact.user_id == str(channel_id) else "user",
+                    "content": fact.content,
+                    "user_id": fact.user_id
+                })
+        return formatted
+    
+    @staticmethod
+    def is_bot_announcement(msg) -> bool:
+
+        """
+        Check if the message is from the bot.
+        """
+        return msg.content.startswith("BOT: ")
 
     async def add_memories(self, messages: dict[int, list[discord.Message]]) -> list[dict[str, Any]]:
         '''
@@ -81,7 +109,8 @@ class AgentUtilities:
             
             logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
             if facts := [{"role": "assistant" if self.user and f.user_id == self.user.id else "user",
-                        "content": f"{f.topic}: {f.content}" if hasattr(f, 'topic') else f.content,
+                        "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
+                        "topic": f.topic if hasattr(f, 'topic') else "",
                         "user_id": f.user_id}
                         for f in facts.facts]:
 
@@ -97,41 +126,20 @@ class AgentUtilities:
             
         return []
 
-def format_memory_messages(messages: dict[int, FactResponse]) -> list[dict[str, str]]:
-    """
-    Format the messages for memory addition.
-    """
-    formatted = []
-    for channel_id, msgs in messages.items():
-        for fact in msgs.facts:
-            formatted.append({
-                "role": "assistant" if fact.user_id == str(channel_id) else "user",
-                "content": fact.content,
-                "user_id": fact.user_id
-            })
-    return formatted
+    async def check_watched_channels(self) -> dict[int, list[discord.Message]]:
+        logger.debug("Checking watched channels for new messages...")
+    
+        after = datetime.now(timezone.utc) - timedelta(minutes=5)
+        watched_msgs: dict[int, list[discord.Message]] = {}
+        for c in self.watched_channels:
+            channel: discord.abc.GuildChannel | None = self.get_channel(c)
+            if isinstance(channel, discord.TextChannel):
+                watched_msgs[c] = [
+                    m async for m in channel.history(after=after)
+                    if not self.is_bot_announcement(m)
+                    and not m.content.startswith(self.command_prefix)
+                    and m.id not in self.seen_messages # type: ignore
+                    and len(m.embeds) == 0  # Exclude messages with embeds
+                ]
 
-async def check_watched_channels(bot) -> dict[int, list[discord.Message]]:
-    logger.debug("Checking watched channels for new messages...")
-   
-    after = datetime.now(timezone.utc) - timedelta(minutes=5)
-    watched_msgs: dict[int, list[discord.Message]] = {}
-    for c in bot.watched_channels:
-        channel: Union[discord.TextChannel, discord.VoiceChannel, None] = bot.get_channel(c)
-        if isinstance(channel, discord.TextChannel):
-            watched_msgs[c] = [
-                m async for m in channel.history(after=after)
-                if not is_bot_announcement(m)
-                and not m.content.startswith(bot.command_prefix)  # type: ignore
-                and m.id not in bot.seen_messages
-                and len(m.embeds) == 0  # Exclude messages with embeds
-            ]
-
-    return watched_msgs
-
-def is_bot_announcement(msg) -> bool:
-
-    """
-    Check if the message is from the bot.
-    """
-    return msg.content.startswith("BOT: ")
+        return watched_msgs

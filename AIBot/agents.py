@@ -10,7 +10,7 @@ import wikipedia
 
 from .duckduckgo import duckduckgo_search_tool
 from .models import AgentDependencies, AgentResponse, FactResponse, WikipediaSearchResult
-from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_prompt, search_preamble_prompt
+from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_system_prompt
 from .config import config
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ memory_config = {
         },
     },
     "custom_update_memory_prompt": update_user_prompt(),
-    "custom_fact_extraction_prompt": fact_retrieval_prompt(),
+    "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
 }
 
 # supposedly fixes the 202 rate limit issue for duckduckgo
@@ -74,10 +74,29 @@ search_agent = Agent[AgentDependencies, AgentResponse](
 
 memory_agent = Agent[AgentDependencies, FactResponse](
             model=local_model,
-            instructions=[fact_retrieval_prompt],
+            instructions=[fact_retrieval_system_prompt],
             output_type=FactResponse,
             deps_type=AgentDependencies,
         )
+
+
+@main_agent.tool(retries=0)
+async def get_current_user(ctx: RunContext[AgentDependencies]) -> AgentResponse:
+    """
+    Return the current user information.
+    """
+    if ctx.deps.username:
+        return AgentResponse(content=f"The current user is: {ctx.deps.username} (ID: {ctx.deps.user_id})")
+    return AgentResponse(content="No user information available.")
+
+@main_agent.tool(retries=0)
+async def get_user_list(ctx: RunContext[AgentDependencies]) -> AgentResponse:
+    """
+    Return a list of users in the current server.
+    """
+    if ctx.deps.user_list:
+        return AgentResponse(content=f"Users in the server: {', '.join(ctx.deps.user_list)}")
+    return AgentResponse(content="No users found.")
 
 @main_agent.tool(retries=0)
 async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentResponse:
@@ -87,10 +106,6 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentRespons
     logger.debug(f"Search Query: {query}")
     query = query.strip()
 
-    # send the user message before the search
-    prompt = search_preamble_prompt.format(query=query) if query else "I don't know what to search for."
-    await search_agent.run(prompt, deps=ctx.deps, output_type=str, model_settings={'temperature': 0.9}) # type: ignore
-   
     try:
         results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse) # type: ignore
         if results:

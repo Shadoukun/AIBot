@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from mem0 import AsyncMemory
 import umap
-from . import util
+from .util import AgentUtilities
 from .models import AgentDependencies
 from .agents import main_agent, memory_agent, memory_config
 from .config import config, write_config
@@ -21,16 +21,16 @@ logger = logging.getLogger(__name__)
 
 MODEL_SETTINGS = config.get("MODEL_SETTINGS", {})
 
-class AIBot(commands.Bot, util.AgentUtilities): # type: ignore
+class AIBot(commands.Bot, AgentUtilities):
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
         
         self.agent         = main_agent
         self.memory_agent  = memory_agent
 
+        self.watched_channels:   list[int] = config.get("WATCHED_CHANNELS", [])
         self.message_history:    list[ModelMessage] = []  # type: ignore
         self.seen_messages:      list[int] = []
-        self.watched_channels:   list[int] = []
         self.seen_cleared_at   = datetime.now(timezone.utc)
         self.memory_checked_at = datetime.now(timezone.utc)
     
@@ -94,7 +94,7 @@ class AIBot(commands.Bot, util.AgentUtilities): # type: ignore
     async def add_memories_task(self) -> None:
         logger.debug("Running memory task...")
 
-        watched_msgs = await util.check_watched_channels(self)
+        watched_msgs = await self.check_watched_channels()
         if not watched_msgs:
             logger.debug("No new messages found for memory check.")
             return
@@ -109,11 +109,12 @@ class AIBot(commands.Bot, util.AgentUtilities): # type: ignore
 
         # add memories
         if res := await self.add_memories(watched_msgs):
-            added = [f"**Memory:** {result['memory']} **Event:** {result['event']}" for result in res]
+            print(res)
+            added = [f"**{result['event']} |** {result['memory']}" for result in res]
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
                 embed = discord.Embed(
-                    title="Memory Update",
+                    title="Memory",
                     description="\n\n".join(chunk),
                     color=discord.Color.green()
                 )

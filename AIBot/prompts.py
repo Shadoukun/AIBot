@@ -15,17 +15,6 @@ def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> 
     prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
 
     return prompt_str
-
-search_preamble_prompt = (
-        "You are an AI assistant in a Discord server. Your primary goal is to answer user questions "
-        "accurately and be as helpful as possible. Whether you want to or not, you will always answer the user's question. \n\n"
-        "<prompt>You don't know the answer or are going to look for {query}. Give a short response. Be casual.</prompt>"
-        "\n\n"
-        "<example>I don't know I'll look." \
-        "</example>" \
-        "<example>I don't know anything about {query}.</example>" \
-        "<example>I'm not sure, but I can look it up.</example>" \
-        "<example>Since you're too lazy to look it up yourself, I'll do it for you.</example>")
         
 def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     """Generate the system prompt for the AI agent."""
@@ -64,15 +53,6 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     prompt_str += format_prompt.format_as_xml(prompt["safety"], item_tag="rule", root_tag="safety")
 
     if ctx:
-        if ctx.deps.username:
-            prompt["current_user"] = ctx.deps.username
-            prompt_str += "\n" + \
-            """<current_user>\n{username}\n</current_user>\n\n""".format(username=ctx.deps.username)
-
-        if ctx.deps.user_list:
-            prompt["user_list"] = ctx.deps.user_list
-            prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.user_list, item_tag="user", root_tag="user_list")
-
         if ctx.deps.memories:
             prompt["memories"] = ctx.deps.memories
             prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.memories, item_tag="memory", root_tag="memories")
@@ -200,26 +180,28 @@ def update_user_prompt() -> str:
     "\n".join(examples)
 ])
 
-def memory_fact_prompt(messages: list[dict]) -> str:
+def memory_prompt(messages: list[dict]) -> str:
     prompt = (
     "Does the following conversation contain any facts or information that are worth remembering?\n\n"
-    "<conversation>\n{conversation}\n</conversation> \n\n"
-    "If it does, extract the facts and return them in a JSON format as shown below. "
-    "If it does not, return an empty list.\n\n") \
+    "<conversation>\n{conversation}\n</conversation> \n\n")\
     .format(conversation="\n".join(f"<{m['user_id']}>: {m['content']}" for m in messages))
-    
-    prompt = prompt + (
-        "\n<facts>\n"
-        "    <fact>\n"
-        "        <content>{content}</content>\n"
-        "        <user_id>{user_id}</user_id>\n"
-        "    </fact>\n"
-        "</facts>\n\n"
+
+    prompt += (
+        "\nReturn the facts in a JSON format as shown below:\n"
+        "{\n"
+        '  "facts": [\n'
+        '    {\n'
+        '      "content": "<fact content>",\n'
+        '      "user_id": "<user_id>"\n'
+        '      "topic": "<topic>"\n'
+        '    }\n'
+        "  ]\n"
+        "}\n\n"
     )
 
     return prompt
 
-def fact_retrieval_prompt() -> str:
+def fact_retrieval_system_prompt() -> str:
     """
     Generate the prompt for fact retrieval.
     """
@@ -264,13 +246,13 @@ def fact_retrieval_prompt() -> str:
         },
     ]
 
-    return "\n".join([
+    prompt = "\n".join([
         format_prompt.format_as_xml(system, item_tag="system", root_tag="system"),
         format_prompt.format_as_xml(policies, item_tag="policy", root_tag="policies"),
         format_prompt.format_as_xml(examples, item_tag="example", root_tag="examples")
-        + "\n\nReturn the facts in a json format as shown above."
     ])
 
+    return prompt
 
 def summary_prompt() -> str:
     """
