@@ -68,7 +68,8 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     if ctx:
         if ctx.deps.username:
             prompt["current_user"] = ctx.deps.username
-            prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.username, item_tag="user", root_tag="current_user")
+            prompt_str += "\n" + \
+            """<current_user>\n{username}\n</current_user>\n\n""".format(username=ctx.deps.username)
 
         if ctx.deps.user_list:
             prompt["user_list"] = ctx.deps.user_list
@@ -77,9 +78,6 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
         if ctx.deps.memories:
             prompt["memories"] = ctx.deps.memories
             prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.memories, item_tag="memory", root_tag="memories")
-            print(prompt_str)
-
-        logging.debug(f"System Prompt: {prompt}\n\n\n")
 
     return prompt_str
 
@@ -117,10 +115,7 @@ def update_user_prompt() -> str:
         "ALL": "All memories must include names and relevant information. Make sure to include a unique ID.",
         "ADD": "Make sure to include a unique ID.",
         "UPDATE": "Make sure to keep the existing ID.",
-        "DELETE": (
-            "Delete duplicate memories. Delete memories about users. "
-            "Delete memories that begin with pronouns or demonstratives like 'He', 'She', 'They', etc."
-        ),
+        "DELETE": "Make sure to keep the existing ID.",
         "NO CHANGE": "No change to the memory item.",
     }
 
@@ -137,6 +132,18 @@ def update_user_prompt() -> str:
             <text>Whales are the largest mammal.</text>
             <event>ADD</event>
         </after>
+    </example>""",
+    """<example tool="ADD">
+        <before>
+            <id>0</id>
+            <text>I am a software engineer</text>
+            <event>NONE</event>
+        </before>
+        <after>
+            <id>0</id>
+            <text>{user} is a software engineer.</text>
+            <event>ADD</event>
+        </after>
     </example>""", 
     """
     <example tool="UPDATE">
@@ -146,19 +153,7 @@ def update_user_prompt() -> str:
         </before>
         <after>
             <id>0</id>
-            <text>Some whales eat fish.</text>
-            <event>UPDATE</event>
-        </after>
-    </example>""", 
-    """
-    <example tool="UPDATE">
-        <before>
-            <id>1</id>
-            <text>User believes that the Earth is flat.</text>
-        </before>
-        <after>
-            <id>1</id>
-            <text>The Earth may be flat.</text>
+            <text>Whales eat fish.</text>
             <event>UPDATE</event>
         </after>
     </example>""", 
@@ -178,11 +173,11 @@ def update_user_prompt() -> str:
     <example tool="DELETE">
         <before>
             <id>0</id>
-            <text>User is a software engineer</text>
+            <text>He was a software engineer.</text>
         </before>
         <after>
             <id>0</id>
-            <text>User is a software engineer</text>
+            <text>He was a software engineer.</text>
             <event>DELETE</event>
         </after>
     </example>""",
@@ -209,20 +204,19 @@ def update_user_prompt() -> str:
 
 def memory_fact_prompt(messages: list[dict]) -> str:
     prompt = (
-    "Does the following conversation contain any information or facts that are worth remembering?\n\n"
-    "<conversation>{conversation}</conversation> \n\n"
+    "Does the following conversation contain any facts or information that are worth remembering?\n\n"
+    "<conversation>\n{conversation}\n</conversation> \n\n"
     "If it does, extract the facts and return them in a JSON format as shown below. "
     "If it does not, return an empty list.\n\n") \
-    .format(conversation="\n".join(f"{m['user_id']}: {m['content']}" for m in messages))
+    .format(conversation="\n".join(f"<{m['user_id']}>: {m['content']}" for m in messages))
     
     prompt = prompt + (
-        "<facts>\n"
+        "\n<facts>\n"
         "    <fact>\n"
         "        <content>{content}</content>\n"
         "        <user_id>{user_id}</user_id>\n"
         "    </fact>\n"
         "</facts>\n\n"
-        "Make sure to include the user's ID in the facts. "
     )
 
     return prompt
@@ -235,14 +229,14 @@ def fact_retrieval_prompt() -> str:
     system = "You are a Curator of Factual Information, specialized in accurately storing facts and memories while ignoring people's personal feelings." + \
         " Your primary role is to extract relevant pieces of information from conversations and organize them into distinct, manageable facts." + \
         " You are designed to remember factual information, and recent events, and interesting things that users say." + \
-        " You are not designed to remember subjective statements, personal opinions, or any information that is not a factual statement."
+        " You are not designed to remember subjective statements, personal opinions, or any information that is not a factual statement." 
     
     policies = [
-        "Factual Information: Store interesting and relevant factual information. Not personal opinions, beliefs, or any subjective statement expressed.",
-        "Length: Keep the facts concise and to the point, ideally one sentence long. When breaking up facts, use the person's name.", 
-        "Pronouns and Demonstratives: Do not start any facts with pronouns or demonstratives like 'He', 'She', 'They', etc. always use the person's name.",
+        "User: Do not use the user's name or username when referring to them, and avoid using pronouns or demonstratives like 'you', 'your', 'they', 'them', etc.",
+        "Pronouns and Demonstratives: Do not refer to the user, and ignore anything that begins with pronouns or demonstratives like 'I', 'you', 'your', 'he', 'she', 'they', 'them', etc. " +
+        "Factual Information: Store interesting and relevant factual information.",
+        "Length: Keep the facts concise and to the point, ideally one sentence long. When breaking up facts, use the person or thing's name.", 
         "Sensitive Information: Do not store sensitive information such as passwords, credit card numbers, or any other personal information that could be used against anyone.",
-        "Anonymize: Do not refer to users. Do not refer to users by name or any personal identifier. Do not call the user 'user'."
     ]
 
     examples = [
@@ -260,11 +254,7 @@ def fact_retrieval_prompt() -> str:
         },
         {
             "input": "Hi, my name is John. I am a software engineer.",
-            "output": "{{'facts' : []}}"
-        },
-        {
-            "input": "user thought that the Earth is flat.",
-            "output": "{{'facts' : []}}"
+            "output": "{{[]}}"
         },
         {
             "input": "Cats are great pets. They are independent and low-maintenance.",

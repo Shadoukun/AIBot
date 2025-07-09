@@ -75,7 +75,6 @@ class AIBot(commands.Bot): # type: ignore
                 logger.debug(f"Agent Result: {result.output}")
                 await ctx.send(result.output.content)
             
-
     def add_message_to_chat_history(self, result: AgentRunResult[Any]) -> None:
         """
         Add a message to the bot's message history.
@@ -121,16 +120,22 @@ class AIBot(commands.Bot): # type: ignore
             return
         
         # add the IDs of the messages to the seen_messages list
-        for channel_id, msgs in watched_msgs.items():
+        for _, msgs in watched_msgs.items():
             for msg in msgs:
                 self.seen_messages.append(msg.id)
        
         # Change bot status to busy
         await self.change_presence(activity=discord.Game(name="Updating Memory..."), status=discord.Status.dnd)
 
+        # add memories
         if res := await util.add_memories(self, watched_msgs):
-            logger.debug(f"Memory results: {res}")
-            chunks = [res[i:i + 5] for i in range(0, len(res), 5)]
+            added = []
+            if isinstance(res, dict) and (results := res.get("results", [])):
+                for result in results:
+                    added.append(f"**Memory:** {result['memory']} **Event:** {result['event']}")
+
+            logger.debug(f"Memory results: \n {added}")
+            chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
                 embed = discord.Embed(
                     title="Memory Update",

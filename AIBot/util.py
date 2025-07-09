@@ -71,41 +71,31 @@ async def check_facts(bot, messages: dict[int, list[discord.Message]]) -> dict[i
 
     return {}
 
-async def add_memories(bot, messages: dict[int, list[discord.Message]]) -> list[str]:
+async def add_memories(bot, messages: dict[int, list[discord.Message]]) -> list[dict[str, Any]]:
     '''
     Adds messages to the bot's memories and returns the results.
     '''
     
-    # checks each channels messages for facts, returns a {channel_id: FactResponse}
-    fact_res: dict[int, FactResponse] = await check_facts(bot, messages)
-    if not fact_res:
-        logger.debug("No facts found in watched messages.")
-        return []
+    # # checks each channels messages for facts, returns a {channel_id: FactResponse}
+    # fact_res: dict[int, FactResponse] = await check_facts(bot, messages)
+    # if not fact_res:
+    #     logger.debug("No facts found in watched messages.")
+    #     return []
 
-    result_msgs = []
-    for channel_id, msgs in fact_res.items():
-        logger.debug(f"add_memories | Processing {len(msgs.facts)} facts in channel {channel_id}")
+    for channel_id, msgs in messages.items():
+        logger.debug(f"add_memories | Processing {len(msgs)} messages in channel {channel_id}")
+
+        if msgs := [{"role": "assistant" if bot.user and m.author.id == bot.user.id else "user",
+                    "content": m.content,
+                    "user_id": m.author.id}
+                    for m in msgs]:
+
+            res = await bot.memory.add(msgs, agent_id=str(bot.user.id) if bot.user and bot.user.id else "",
+                                   metadata={"user_id": str(m["user_id"]) for m in msgs})
+
+            return res.get("results", [])
         
-        msgs_to_add = []
-        msgs_to_add.extend({"role": "assistant" if bot.user and m.user_id == bot.user.id else "user", 
-                            "content": m.content, 
-                            "user_id": m.user_id}
-                            for m in msgs.facts)
-        
-        if not msgs_to_add:
-            logger.debug(f"No messages to add for channel {channel_id}.")
-            continue
-
-        res = await bot.memory.add(msgs_to_add,
-                                   agent_id=str(bot.user.id) if bot.user and bot.user.id else "",
-                                   metadata={"user_id": str(m["user_id"]) for m in msgs_to_add})
-
-        if isinstance(res, dict):
-            results = res.get("results", [])
-            for result in results:
-                result_msgs.append(f"Memory: {result['memory']} Event: {result['event']}")
-    
-    return result_msgs
+    return []
 
 def format_memory_messages(messages: dict[int, FactResponse]) -> list[dict[str, str]]:
     """
