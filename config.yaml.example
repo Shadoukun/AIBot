@@ -10,3 +10,5 @@ BASE_URL: http://localhost:11434/v1
 
 MODEL_SETTINGS:
   temperature: 0.7
+
+WATCHED_CHANNELS: []

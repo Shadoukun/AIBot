@@ -13,7 +13,7 @@ import umap
 from . import util
 from .models import AgentDependencies
 from .agents import main_agent, memory_agent, memory_config
-from .config import config
+from .config import config, write_config
 import io
 
 logger = logging.getLogger(__name__)
@@ -161,6 +161,11 @@ async def add_watched_channel(ctx: commands.Context):
     if isinstance(ctx.channel, discord.abc.GuildChannel):
         if ctx.channel.id not in bot.watched_channels:
             bot.watched_channels.append(ctx.channel.id)
+
+            # update config
+            config["WATCHED_CHANNELS"] = bot.watched_channels
+            write_config(config, path="config.yaml")
+
             await ctx.message.add_reaction("✅")
         else:
             await ctx.message.add_reaction("🚫")
@@ -171,6 +176,11 @@ async def remove_watched_channel(ctx: commands.Context):
     if isinstance(ctx.channel, discord.abc.GuildChannel):
         if ctx.channel.id in bot.watched_channels:
             bot.watched_channels.remove(ctx.channel.id)
+            
+            # update config
+            config["WATCHED_CHANNELS"] = bot.watched_channels
+            write_config(config, path="config.yaml")
+            
             await ctx.message.add_reaction("❌")
         else:
             await ctx.message.add_reaction("🚫")

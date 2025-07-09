@@ -1,8 +1,6 @@
-import os
 import logging
 from AIBot.bot import bot
-from dotenv import load_dotenv
-load_dotenv()
+from AIBot.config import config
 
 # Configure logging
 logging.basicConfig(
@@ -12,7 +10,7 @@ logging.basicConfig(
 
 logging.getLogger("AIBot").setLevel(logging.DEBUG)
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = config.get("TOKEN")
 
 if __name__ == "__main__":
     try:
