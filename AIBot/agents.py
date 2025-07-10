@@ -6,10 +6,11 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.usage import UsageLimits
 import wikipedia
 
 from .duckduckgo import duckduckgo_search_tool
-from .models import AgentDependencies, AgentResponse, FactResponse, WikipediaSearchResult
+from .models import AgentDependencies, AgentResponse, BoolResponse, FactResponse, WikipediaSearchResult
 from .prompts import default_system_prompt, search_agent_system_prompt, update_user_prompt, fact_retrieval_system_prompt
 from .config import config
 
@@ -79,6 +80,12 @@ memory_agent = Agent[AgentDependencies, FactResponse](
             deps_type=AgentDependencies,
         )
 
+true_false_agent = Agent[AgentDependencies, BoolResponse](
+            model=local_model,
+            instructions=[default_system_prompt],
+            output_type=BoolResponse,
+            deps_type=AgentDependencies,
+        )
 
 @main_agent.tool(retries=0)
 async def get_current_user(ctx: RunContext[AgentDependencies]) -> AgentResponse:
@@ -107,7 +114,8 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentRespons
     query = query.strip()
 
     try:
-        results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse) # type: ignore
+        results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse, 
+                                         usage_limits=UsageLimits(request_limit=5, response_tokens_limit=2000))
         if results:
             return results.output
         return AgentResponse(content="No results found.")

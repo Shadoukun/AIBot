@@ -114,15 +114,12 @@ class AgentUtilities:
                         "user_id": f.user_id}
                         for f in facts.facts]:
 
-                for f in facts:
-                    metadata = {"user_id": str(f["user_id"])}
-                    if "topic" in f:
-                        metadata["topic"] = f["topic"]
-
-                    res = await self.memory.add([f], agent_id=str(self.user.id) if self.user and self.user.id else "",
-                                            metadata=metadata, infer=False)
+               
+                print({"user_id": str(f["user_id"]) for f in facts})
+                res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "",
+                                        metadata={"user_id": str(f["user_id"]) for f in facts}, infer=False)
                     
-                    return res.get("results", []) # type: ignore
+                return res.get("results", []) # type: ignore
             
         return []
 

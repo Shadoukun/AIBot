@@ -39,9 +39,12 @@ class AgentResponse(BaseModel):
         return self.content.strip() if self.content else ""
 
 class Fact(BaseModel):
-    topic: str = Field(..., description="The topic or subject of the fact. one to three words.")
+    topic: str = Field(..., description="The topic or subject of the fact. one or two keywords")
     content: str = Field(..., description="The content of the fact.")
     user_id: str = Field(..., description="The ID of the user who provided the fact.")
+
+class BoolResponse(BaseModel):
+    result: bool = Field(..., description="a single boolean True or False response.")
 
 class FactResponse(BaseModel):
     facts: list[Fact] = Field(default_factory=list, description="A list of facts extracted from the input text.")

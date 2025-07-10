@@ -8,14 +8,16 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.agent import AgentRunResult
 import numpy as np
 import matplotlib.pyplot as plt
+from discord.utils import escape_mentions
 
-from mem0 import AsyncMemory
+from .memory import CustomAsyncMemory
 import umap
 from .util import AgentUtilities
 from .models import AgentDependencies
-from .agents import main_agent, memory_agent, memory_config
+from .agents import main_agent, memory_agent, true_false_agent, memory_config
 from .config import config, write_config
 import io
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class AIBot(commands.Bot, AgentUtilities):
         self.memory_checked_at = datetime.now(timezone.utc)
     
     async def setup_hook(self):
-        self.memory = await AsyncMemory.from_config(memory_config)
+        self.memory = await CustomAsyncMemory.from_config(memory_config)
 
         self.loop.create_task(memory_timer(self))
         self.loop.create_task(seen_messages_timer(self))
@@ -52,15 +54,24 @@ class AIBot(commands.Bot, AgentUtilities):
         
         # for now ignore messages with URLs
         if "http://" in message.content or "https://" in message.content:
-            logger.debug("Message contains a URL. Ignoring.")
+            logger.debug("on_message | Message contains a URL. Ignoring.")
             return
 
         ctx = await self.get_context(message)
         if self.user and self.user.mentioned_in(message):
-            logger.debug(f"Bot Mentioned | {message.content}")
+            logger.debug(f"on_message | Bot Mentioned | {message.content}")
             await self.ask_agent(ctx)
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
+        
+        if random.random() < 0.10:
+            logger.debug("on_message | Random Event Triggered")
+
+            msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
+            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" + msg) # type: ignore
+            if res.output.result:
+                logger.debug("on_message | Generating Random Event Message")
+                await self.ask_agent(ctx)
 
     async def ask_agent(self, ctx: commands.Context):
         """
@@ -72,12 +83,13 @@ class AIBot(commands.Bot, AgentUtilities):
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
+            msg = escape_mentions(msg)  # Remove mentions from the message
         
             memories = []
             memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
             for entry in memory_results["results"]:
                 if entry and "memory" in entry:
-                    logger.debug(f"Memory: {entry['memory']}")
+                    logger.debug(f"ask_agent | Memory: {entry['memory']}")
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
 
             deps = AgentDependencies(bot=self, ctx=ctx, memories=memories)
@@ -92,11 +104,11 @@ class AIBot(commands.Bot, AgentUtilities):
                 await ctx.send(result.output.content)
             
     async def add_memories_task(self) -> None:
-        logger.debug("Running memory task...")
+        logger.debug("add_memories_task | Running memory task...")
 
         watched_msgs = await self.check_watched_channels()
         if not watched_msgs:
-            logger.debug("No new messages found for memory check.")
+            logger.debug("add_memories_task |No new messages found for memory check.")
             return
         
         # add the IDs of the messages to the seen_messages list

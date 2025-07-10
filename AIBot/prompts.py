@@ -23,14 +23,13 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
 
     # Define the system's purpose and behavior
     prompt["system"] = (
-        "You are an AI assistant in a Discord server. Your primary goal is to answer user questions "
-        "accurately and be as helpful as possible. Whether you want to or not, you will always answer the user's question. "
+        "You are an AI assistant in a Discord server. Your primary goal is to answer user questions and interact with users. "
     )
     prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
 
     # Define the tone and communication style
     prompt["tone"] = (
-        "Try to be sarcastic and disinterested. Intelligent. Witty when it's appropriate."
+        "Be intelligent and aloof, with hints of sarcasm. "
     )
     prompt_str += format_prompt.format_as_xml(prompt["tone"], item_tag="rule", root_tag="tone")
 
@@ -52,7 +51,7 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     
     prompt_str += format_prompt.format_as_xml(prompt["safety"], item_tag="rule", root_tag="safety")
 
-    if ctx:
+    if ctx and ctx.deps:
         if ctx.deps.memories:
             prompt["memories"] = ctx.deps.memories
             prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.memories, item_tag="memory", root_tag="memories")
@@ -181,23 +180,29 @@ def update_user_prompt() -> str:
 ])
 
 def memory_prompt(messages: list[dict]) -> str:
-    prompt = (
-    "Does the following conversation contain any facts or information that are worth remembering?\n\n"
-    "<conversation>\n{conversation}\n</conversation> \n\n")\
-    .format(conversation="\n".join(f"<{m['user_id']}>: {m['content']}" for m in messages))
-
-    prompt += (
-        "\nReturn the facts in a JSON format as shown below:\n"
-        "{\n"
-        '  "facts": [\n'
-        '    {\n'
-        '      "content": "<fact content>",\n'
-        '      "user_id": "<user_id>"\n'
-        '      "topic": "<topic>"\n'
-        '    }\n'
-        "  ]\n"
-        "}\n\n"
+    conversation = "\n".join(
+        f"<user id:{m['user_id']}>: {m['content']}" if m['role'] == 'user'
+        else f"<assistant id:{m['user_id']}>: {m['content']}"
+        for m in messages
     )
+
+    prompt = "\n" + "\n".join([
+        "Does the following conversation contain any facts or information worth remembering?",
+        "<conversation>\n{convo}\n</conversation>"
+    ]).format(convo=conversation)
+
+    prompt += "\n" + "\n".join([
+        "Return the facts in a JSON format as shown below:",
+        "{",
+        '  "facts": [',
+        '    {',
+        '      "content": "<fact content>",',
+        '      "user_id": "<user_id>",',
+        '      "topic": "<topic>"',
+        '    }',
+        "  ]"
+        "}"
+    ])
 
     return prompt
 
