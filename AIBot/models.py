@@ -5,11 +5,19 @@ from mem0 import AsyncMemory
 from discord.ext import commands
 from discord.abc import GuildChannel
 
+class User(BaseModel):
+    id: str = Field(..., description="The unique identifier of the user.")
+    name: str = Field(..., description="The name of the user.")
+    display_name: str = Field(..., description="The display name of the user.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the User."""
+        return f"{self.name} (ID: {self.id})"
+
 class AgentDependencies:
-    user_list: Optional[list[str]]
-    agent_id: str
-    username: str
-    user_id: str
+    user_list: Optional[list[User]]
+    agent: User
+    user: Optional[User]
     message_id: str
     context:  Optional[commands.Context] = None
     memory: Optional[AsyncMemory] = None
@@ -18,11 +26,24 @@ class AgentDependencies:
     bot_channel: Optional[GuildChannel] = None
 
     def __init__(self, bot, ctx: commands.Context, memories: Optional[list[str]] = None):
-        self.user_list = [f'"{member.display_name}"' for member in ctx.guild.members if member != ctx.author] # type: ignore
-        self.user_id = str(ctx.author.id if ctx.author else "None")
-        self.agent_id = str(bot.user.id) if bot.user else "None"
-        self.username = ctx.author.display_name if ctx.author else "None"
-        self.user_id = str(ctx.author.id) if ctx.author else "None"
+        self.agent = User(
+            id=str(bot.user.id) if bot.user else "None",
+            name=bot.user.name if bot.user else "None",
+            display_name=bot.user.display_name if bot.user else "None"
+        )
+
+        self.user = User(
+            id=str(ctx.author.id) if ctx.author else "None",
+            name=ctx.author.name if ctx.author else "None",
+            display_name=ctx.author.display_name if ctx.author else "None"
+        )
+
+        self.user_list = [User(
+            id=str(member.id),
+            name=member.name,
+            display_name=member.display_name
+        ) for member in ctx.guild.members if member != ctx.author]
+
         self.context = ctx
         self.memory = bot.memory
         self.memories = memories
@@ -52,6 +73,32 @@ class FactResponse(BaseModel):
         """Return a string representation of the FactResponse."""
         return ", ".join([f"{fact.content} (User ID: {fact.user_id})" for fact in self.facts]).strip() if self.facts else ""
 
+class RandomNumberInput(BaseModel):
+    start: PositiveInt = Field(1, description="The starting range for the random number (inclusive).")
+    limit: PositiveInt = Field(100, description="The upper limit for the random number (inclusive).")
+
+    @classmethod
+    def validate(cls, value):
+        """Custom validation to ensure start is less than or equal to limit."""
+        if value.start > value.limit:
+            raise ValidationError("Start must be less than or equal to limit.")
+        return value
+
+class RandomNumberResponse(BaseModel):
+    number: PositiveInt = Field(..., description="The generated random number.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the RandomNumberResponse."""
+        return f"Your random number is: {self.number}"
+    
+class DateTimeResponse(BaseModel):
+    date: str = Field(..., description="The current date in the format 'MM/DD/YYYY'.")
+    time: str = Field(..., description="The current time in the format 'HH:MM:SS'.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the DateResponse."""
+        return f"The current date is {self.date}. The current time is {self.time}."
+    
 class WikipediaSearchResult(BaseModel):
     title: str
     summary: str

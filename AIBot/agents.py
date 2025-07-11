@@ -1,5 +1,7 @@
 import os
 import logging
+import random
+from datetime import datetime
 from typing import List, Set
 from duckduckgo_search import DDGS
 from pydantic_ai import Agent, RunContext
@@ -14,11 +16,15 @@ import json
 
 from .duckduckgo import duckduckgo_search_tool
 from .models import (
+    User,
     AgentDependencies,
     AgentResponse,
     BoolResponse,
+    DateTimeResponse,
     FactResponse,
     UrbanDefinition,
+    RandomNumberInput,
+    RandomNumberResponse,
     LookupUrbanDictRequest,
     WikiPage,
     WikiCrawlRequest,
@@ -122,25 +128,70 @@ summary_agent = Agent[SummarizeInput, str](
     output_type=str,
 )
 
-@main_agent.tool(retries=0)
-async def get_current_user(ctx: RunContext[AgentDependencies]) -> AgentResponse:
+@main_agent.tool
+async def get_current_user(ctx: RunContext[AgentDependencies]) -> User:
     """
-    Return the current user information.
-    """
-    if ctx.deps.username:
-        return AgentResponse(content=f"The current user is: {ctx.deps.username} (ID: {ctx.deps.user_id})")
-    return AgentResponse(content="No user information available.")
+    Retrieves the current user information from the provided context.
 
-@main_agent.tool(retries=0)
-async def get_user_list(ctx: RunContext[AgentDependencies]) -> AgentResponse:
-    """
-    Return a list of users in the current server.
-    """
-    if ctx.deps.user_list:
-        return AgentResponse(content=f"Users in the server: {', '.join(ctx.deps.user_list)}")
-    return AgentResponse(content="No users found.")
+    Args:
+        ctx (RunContext[AgentDependencies]): The runtime context containing agent dependencies.
 
-@main_agent.tool_plain(retries=0)
+    Returns:
+        User: The current user object if available; otherwise, a default User instance with placeholder values.
+
+    Example:
+        user = await get_current_user(ctx)
+        print(user.id, user.name)
+
+    Notes:
+        - If no user is present in the context dependencies, returns a User object with id="None" and name/display_name set to "No user".
+    """
+    return ctx.deps.user if ctx.deps.user else User(id="", name="", display_name="")
+
+@main_agent.tool
+async def get_user_list(ctx: RunContext[AgentDependencies]) -> List[User]:
+    """
+    Returns a list of users in the current server.
+
+    This asynchronous function retrieves the list of users available in the current context.
+
+    Returns:
+        List[User]: A list of User objects representing users in the server.
+    """
+    return ctx.deps.user_list if ctx.deps.user_list else []
+
+@main_agent.tool_plain
+async def get_current_date() -> DateTimeResponse:
+    """
+    Returns the current date and time.
+
+    This asynchronous function retrieves the current date and time, formats them, and returns an AgentResponse containing the formatted date and time.
+
+    Returns:
+        DateResponse: An object containing the current date in the format "MM/DD/YYYY" and the current time in the format "HH:MM:SS".
+    """
+    date = datetime.now().strftime("%m/%d/%Y")
+    time = datetime.now().strftime("%H:%M:%S")
+    return DateTimeResponse(date=date, time=time)
+
+@main_agent.tool_plain
+async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
+    """
+    Generate a random integer within a specified range.
+    Args:
+        rand (RandomNumberInput): Input object containing 'start' and 'limit' attributes defining the range.
+    Returns:
+        RandomNumberResponse: Response object containing the generated random integer.
+    Raises:
+        ValueError: If 'start' is greater than 'limit'.
+    Example:
+        >>> random_number(RandomNumberInput(start=1, limit=10))
+        RandomNumberResponse(number=7)
+    """
+    number = random.randint(rand.start, rand.limit)
+    return RandomNumberResponse(number=number)
+
+@main_agent.tool_plain
 async def search(query: str) -> AgentResponse:
     """
     Performs a search online for the given query using the search agent.
