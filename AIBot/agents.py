@@ -1,6 +1,5 @@
 import os
 import logging
-import discord
 from typing import List, Set
 from duckduckgo_search import DDGS
 from pydantic_ai import Agent, RunContext
@@ -10,11 +9,32 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.usage import UsageLimits
 import wikipedia
 from pyurbandict import UrbanDict
+from crawl4ai import AsyncWebCrawler, BrowserConfig
+import json
 
 from .duckduckgo import duckduckgo_search_tool
-from .models import AgentDependencies, AgentResponse, BoolResponse, FactResponse, WikipediaSearchResult, UrbanDefinition, LookupUrbanDictRequest, WikiPage, WikiCrawlRequest, WikiCrawlResponse
-from .prompts import default_system_prompt, search_agent_system_prompt, custom_update_prompt, fact_retrieval_system_prompt
+from .models import (
+    AgentDependencies,
+    AgentResponse,
+    BoolResponse,
+    FactResponse,
+    UrbanDefinition,
+    LookupUrbanDictRequest,
+    WikiPage,
+    WikiCrawlRequest,
+    WikiCrawlResponse,
+    CrawlerInput,
+    CrawlerOutput,
+    PageSummary,
+    SummarizeInput
+)
+from .prompts import (
+    default_system_prompt,
+    search_agent_system_prompt,
+    fact_retrieval_system_prompt,
+)
 from .config import config
+from .prompts import custom_update_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +69,13 @@ memory_config = {
     "custom_update_memory_prompt": custom_update_prompt(),
     "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
 }
+
+
+browser_cfg = BrowserConfig(
+    browser_type="chromium",
+    headless=True,
+    verbose=True
+)
 
 # supposedly fixes the 202 rate limit issue for duckduckgo
 # if instead of constantly instantiating a new client, you reuse the same one
@@ -89,6 +116,12 @@ true_false_agent = Agent[AgentDependencies, BoolResponse](
             deps_type=AgentDependencies,
         )
 
+summary_agent = Agent[SummarizeInput, str](
+    model=openrouter_model,
+    instructions=["You are a summarization agent. Your task is to summarize the provided text."],
+    output_type=str,
+)
+
 @main_agent.tool(retries=0)
 async def get_current_user(ctx: RunContext[AgentDependencies]) -> AgentResponse:
     """
@@ -107,16 +140,25 @@ async def get_user_list(ctx: RunContext[AgentDependencies]) -> AgentResponse:
         return AgentResponse(content=f"Users in the server: {', '.join(ctx.deps.user_list)}")
     return AgentResponse(content="No users found.")
 
-@main_agent.tool(retries=0)
-async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentResponse:
+@main_agent.tool_plain(retries=0)
+async def search(query: str) -> AgentResponse:
     """
-    Search for the given query online using the search agent.
+    Performs a search online for the given query using the search agent.
+
+    Args:
+        query (str): The search query string.
+
+    Returns:
+        AgentResponse: The search results as an AgentResponse object.
+
+    Raises:
+        Exception: If an error occurs during the search process.
     """
     logger.debug(f"Search Query: {query}")
     query = query.strip()
 
     try:
-        results = await search_agent.run(query, deps=ctx.deps, output_type=AgentResponse, 
+        results = await search_agent.run(query, output_type=AgentResponse,
                                          usage_limits=UsageLimits(request_limit=5, response_tokens_limit=2000))
         if results:
             return results.output
@@ -125,11 +167,16 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> AgentRespons
         logger.error(f"Error during search: {e}")
         return AgentResponse(content="No results found.")
 
-@search_agent.tool(retries=0)
-def urbandictionary_lookup(ctx: RunContext[AgentDependencies], req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
+@search_agent.tool_plain(retries=0)
+async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
     """
-    Look up a term on Urban Dictionary.
-    Raises ValueError if nothing is found.
+    Looks up the given term on Urban Dictionary and returns a list of definitions.
+    Args:
+        req (LookupUrbanDictRequest): The request containing the term to look up.
+    Returns:
+        list[UrbanDefinition]: A list of UrbanDefinition objects for the term.
+    Raises:
+        ValueError: If no definitions are found for the term.
     """
     entries = UrbanDict(req.term).search()
     if not entries:
@@ -146,12 +193,17 @@ def urbandictionary_lookup(ctx: RunContext[AgentDependencies], req: LookupUrbanD
         for e in entries[:10]
     ]
 
-@search_agent.tool
-def crawl_wikipedia(ctx: RunContext[AgentDependencies], req: WikiCrawlRequest) -> WikiCrawlResponse:
+@search_agent.tool_plain
+async def crawl_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
     """
-    Crawl Wikipedia starting from a query/title, up to `depth`
-    link-levels,. Returns titles, URLs, summaries,
-    and outgoing links for each visited page.
+    Crawl Wikipedia starting from a query/title, up to `depth` link-levels.
+    Returns a WikiCrawlResponse containing WikiPage objects for each visited page.
+    Args:
+        req (WikiCrawlRequest): The crawl request parameters.
+    Returns:
+        WikiCrawlResponse: The crawl results.
+    Raises:
+        ValueError: If no results are found for the query.
     """
 
     visited: Set[str] = set()
@@ -201,6 +253,62 @@ def crawl_wikipedia(ctx: RunContext[AgentDependencies], req: WikiCrawlRequest) -
         visited=len(visited),
         depth_reached=min(req.depth, max((d for _, d in queue), default=0)),
     )
+
+@search_agent.tool_plain
+async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
+    """
+    Crawls a web page and returns a summary of the discovered pages.
+
+    Args:
+        input (CrawlerInput): The input parameters for crawling, including the URL, depth, extraction options, domain filters, maximum pages, and summary inclusion.
+    Returns:
+        CrawlerOutput: An object containing a list of PageSummary instances for each crawled page, including URL, title, summary, and metadata.
+    Raises:
+        Exception: If summarization of a page's text fails, the summary will be set to "Summary failed."
+    Example:
+        input = CrawlerInput(
+            url="https://example.com",
+            depth=2,
+            extract=["text", "title"],
+            max_pages=10,
+            domain_filter=["example.com"],
+            include_summary=True
+    """
+    async with AsyncWebCrawler(config=browser_cfg) as crawler:
+        crawl_result = await crawler.arun(input.url)
+
+    if not crawl_result.success:
+        logger.debug(f"Crawl failed: {crawl_result.error_message}")
+    
+    links = []
+    for link in crawl_result.links['internal']:
+        if input.domain_filter and not any(domain in link for domain in input.domain_filter):
+            continue
+        else:
+            links.append(link)
+
+    summary = None
+    if input.include_summary and crawl_result.markdown:
+        logger.debug("Summarizing page content...")
+        try:
+            res = await summary_agent.run(
+                SummarizeInput(text=crawl_result.markdown),
+                output_type=str,
+            )
+            summary = res.output if res else "Summary failed."
+        except Exception as e:
+            logger.error(f"Error summarizing page content: {e}")
+            summary = "Summary failed."
+
+    output = CrawlerOutput(summary=PageSummary(
+        url=input.url,
+        summary=summary if summary else "No summary available.",
+        metadata=crawl_result.metadata
+    ), links=links)
+    
+    logger.debug(f"Crawler output: {output}")
+   
+    return output
 
 
 def _fetch_page(title: str, intro_only: bool) -> WikiPage:

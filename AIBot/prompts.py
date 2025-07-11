@@ -58,7 +58,7 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
 
     return prompt_str
 
-def update_user_prompt() -> str:
+def custom_update_prompt() -> str:
     """
     Generate the prompt for updating user memory.
     """

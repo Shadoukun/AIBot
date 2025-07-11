@@ -1,6 +1,9 @@
+import os
 import logging
 from AIBot.bot import bot
 from AIBot.config import config
+
+os.environ["MEM0_TELEMETRY"] = "False"
 
 # Configure logging
 logging.basicConfig(
