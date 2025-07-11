@@ -1,19 +1,18 @@
 import os
 import logging
 import random
+from crawl4ai import AsyncWebCrawler, BrowserConfig
 from datetime import datetime
-from typing import List, Set
-from duckduckgo_search import DDGS
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.usage import UsageLimits
-import wikipedia
 from pyurbandict import UrbanDict
-from crawl4ai import AsyncWebCrawler, BrowserConfig
-import json
+from typing import List, Set
+import wikipedia
 
+from .config import config
 from .duckduckgo import duckduckgo_search_tool
 from .models import (
     User,
@@ -32,15 +31,14 @@ from .models import (
     CrawlerInput,
     CrawlerOutput,
     PageSummary,
-    SummarizeInput
+    SummarizeInput,
 )
 from .prompts import (
     default_system_prompt,
     search_agent_system_prompt,
     fact_retrieval_system_prompt,
+    custom_update_prompt
 )
-from .config import config
-from .prompts import custom_update_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +78,7 @@ memory_config = {
 browser_cfg = BrowserConfig(
     browser_type="chromium",
     headless=True,
-    verbose=True
 )
-
-# supposedly fixes the 202 rate limit issue for duckduckgo
-# if instead of constantly instantiating a new client, you reuse the same one
-ddgs_client = DDGS()
 
 local_model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
 openrouter_model = OpenAIModel(
@@ -103,7 +96,7 @@ main_agent = Agent[AgentDependencies, AgentResponse](
 search_agent = Agent[AgentDependencies, AgentResponse](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
-            tools=[duckduckgo_search_tool(duckduckgo_client=ddgs_client, max_results=3)],
+            tools=[duckduckgo_search_tool(max_results=5)],
             deps_type=AgentDependencies,
             output_type=AgentResponse,
         )
@@ -124,7 +117,7 @@ true_false_agent = Agent[AgentDependencies, BoolResponse](
 
 summary_agent = Agent[SummarizeInput, str](
     model=openrouter_model,
-    instructions=["You are a summarization agent. Your task is to summarize the provided text."],
+    instructions=["You are a summarization agent. Your only task is to summarize the provided text."],
     output_type=str,
 )
 
@@ -218,7 +211,7 @@ async def search(query: str) -> AgentResponse:
         logger.error(f"Error during search: {e}")
         return AgentResponse(content="No results found.")
 
-@search_agent.tool_plain(retries=0)
+@search_agent.tool_plain
 async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
     """
     Looks up the given term on Urban Dictionary and returns a list of definitions.
@@ -357,8 +350,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
         metadata=crawl_result.metadata
     ), links=links)
     
-    logger.debug(f"Crawler output: {output}")
-   
+    logger.debug(f"Crawled {len(links)} links from {input.url}")   
     return output
 
 

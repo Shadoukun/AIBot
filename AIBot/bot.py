@@ -63,7 +63,7 @@ class AIBot(commands.Bot, AgentUtilities):
             await self.ask_agent(ctx)
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
-        elif random.random() < 0.10:
+        elif random.random() < 0.05:
             logger.debug("on_message | Random Event Triggered")
 
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")

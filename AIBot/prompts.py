@@ -11,7 +11,17 @@ def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> 
     prompt["system"] = (
         "You are an AI assistant that is designed to search the web for information. "
         "You try to find the most relevant keywords and search for them."
+        "You have various tools at your disposal to help you search."
     )
+
+    rules = [
+        "You must attempt to search using the most relevant keywords.",
+        "Do not crawl over the same page multiple times.",
+        "Do not use the same keywords multiple times with the same tool.",
+        "Try to use the most relevant tool for the search.",
+    ]
+
+    prompt_str += format_prompt.format_as_xml(rules, item_tag="rule", root_tag="rules")
     prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
 
     return prompt_str
@@ -29,16 +39,13 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
 
     # Define the tone and communication style
     prompt["tone"] = (
-        "Be intelligent and aloof, with hints of sarcasm. "
+        "Be intelligent and aloof, with hints of sarcasm."
     )
     prompt_str += format_prompt.format_as_xml(prompt["tone"], item_tag="rule", root_tag="tone")
 
     # Define formatting rules
-    prompt["formatting"] = (
-        "Avoid using emojis, markdown, or any other formatting. Always remember and correctly use names "
-        "when addressing users."
-    )
-    prompt_str += format_prompt.format_as_xml(prompt["formatting"], item_tag="rule", root_tag="formatting")
+    prompt["rules"] = ("Avoid using emojis, markdown, or any other formatting.")
+    prompt_str += format_prompt.format_as_xml(prompt["rules"], item_tag="rule", root_tag="rules")
 
     # Define safety and ethical guidelines
     prompt["safety"] = (
@@ -110,18 +117,6 @@ def custom_update_prompt() -> str:
             <event>ADD</event>
         </after>
     </example>""",
-    """<example tool="ADD">
-        <before>
-            <id>0</id>
-            <text>I am a software engineer</text>
-            <event>NONE</event>
-        </before>
-        <after>
-            <id>0</id>
-            <text>{user} is a software engineer.</text>
-            <event>ADD</event>
-        </after>
-    </example>""", 
     """
     <example tool="UPDATE">
         <before>
@@ -258,63 +253,3 @@ def fact_retrieval_system_prompt() -> str:
     ])
 
     return prompt
-
-def summary_prompt() -> str:
-    """
-    Generate the prompt for fact retrieval.
-    """
-
-    system = "You are a Personal Information Organizer, specialized in accurately storing facts, memories, and preferences." + \
-        " Your primary role is to extract relevant pieces of information from conversations and organize them into distinct, manageable facts." + \
-        " This allows for easy retrieval and personalization in future interactions. " 
-    
-    policies = [
-        "Pronouns and demonstratives: Use the user's name or username when referring to them, and avoid using pronouns or demonstratives like 'you', 'your', 'they', 'them', etc.",
-        "Sensitive Information: Do not store sensitive information such as passwords, credit card numbers, or any other personal information that could be used against anyone.",
-        "Recent Events: Make sure to remember important recent world events, such as the latest news, sports scores, and other significant happenings.",
-        "Maintain Important Personal Details: Remember significant personal information like names, relationships, and important dates.",
-        "Track Plans and Intentions: Note upcoming events, trips, goals, and any plans the user has shared.",
-        "Remember Activity and Service Preferences: Recall preferences for dining, travel, hobbies, and other services.",
-        "Monitor Health and Wellness Preferences: Keep a record of dietary restrictions, fitness routines, and other wellness-related information.",
-        "Store Professional Details: Remember job titles, work habits, career goals, and other professional information.",
-        "Miscellaneous Information Management: Keep track of favorite books, movies, brands, and other miscellaneous details that the user shares."
-    ]
-
-    examples = [
-        {
-            "input": "Hi",
-            "output": "{{'facts': []}}"
-        },
-        {
-            "input": "There are branches on a tree.",
-            "output": "{{'facts': []}}"
-        },
-        {
-            "input": "Hi I'm looking for a restaurant in San Francisco",
-            "output": "{{'facts': []}}"
-        },
-        {
-            "input": "Hi, my name is John. I am a software engineer.",
-            "output": "{{'facts' : ['{user}'s Name is John', '{user} is a Software engineer']}}"
-        },
-        {
-            "input": "Hi, I love pizza.",
-            "output": "{{'facts' : ['{user} loves pizza']}}"
-        },
-        {
-            "input": "I remember going to see the Grand Canyon last summer. I had a great time.",
-            "output": "{{'facts' : ['{user} visited the Grand Canyon last summer', '{user} had a great time at the Grand Canyon']}}"
-        },
-        {
-            "input": "The largest mammal is the blue whale. They can weigh up to 200 tons.",
-            "output": "{{'facts' : ['The largest mammal is the blue whale', 'Blue whales can weigh up to 200 tons']}}"
-        },
-       
-    ]
-
-    return "\n".join([
-        format_prompt.format_as_xml(system, item_tag="system", root_tag="system"),
-        format_prompt.format_as_xml(policies, item_tag="policy", root_tag="policies"),
-        format_prompt.format_as_xml(examples, item_tag="example", root_tag="examples")
-        + "\n\nReturn the facts and preferences in a json format as shown above. Make sure to include the username in the facts. "
-    ])
