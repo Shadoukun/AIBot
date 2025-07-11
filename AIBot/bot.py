@@ -63,8 +63,7 @@ class AIBot(commands.Bot, AgentUtilities):
             await self.ask_agent(ctx)
         elif message.content.startswith(self.command_prefix):
             await self.process_commands(message)
-        
-        if random.random() < 0.10:
+        elif random.random() < 0.10:
             logger.debug("on_message | Random Event Triggered")
 
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
@@ -83,7 +82,7 @@ class AIBot(commands.Bot, AgentUtilities):
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
-            msg = escape_mentions(msg)  # Remove mentions from the message
+            msg = escape_mentions(msg)
         
             memories = []
             memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
@@ -121,8 +120,12 @@ class AIBot(commands.Bot, AgentUtilities):
 
         # add memories
         if res := await self.add_memories(watched_msgs):
-            print(res)
-            added = [f"**{result['event']} |** {result['memory']}" for result in res]
+            added: list[str] = [
+                f"**{r['event']} |** {r['previous_memory']} **->**\n{r['memory']}" if r.get('previous_memory')
+                else f"**{r['event']} |** {r['memory']}"
+                for r in res
+            ]
+
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
                 embed = discord.Embed(

@@ -8,7 +8,6 @@ from mem0.memory.telemetry import capture_event
 from mem0.configs.prompts import get_update_memory_messages
 from mem0.memory.utils import process_telemetry_filters, remove_code_blocks
 
-
 logger = logging.getLogger(__name__)
 
 

@@ -114,8 +114,6 @@ class AgentUtilities:
                         "user_id": f.user_id}
                         for f in facts.facts]:
 
-               
-                print({"user_id": str(f["user_id"]) for f in facts})
                 res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "",
                                         metadata={"user_id": str(f["user_id"]) for f in facts}, infer=False)
                     

@@ -1,10 +1,9 @@
 from dataclasses import dataclass
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional
+from pydantic import BaseModel, Field, PositiveInt, ValidationError
 from mem0 import AsyncMemory
 from discord.ext import commands
 from discord.abc import GuildChannel
-
 
 class AgentDependencies:
     user_list: Optional[list[str]]
@@ -56,3 +55,37 @@ class FactResponse(BaseModel):
 class WikipediaSearchResult(BaseModel):
     title: str
     summary: str
+
+class LookupUrbanDictRequest(BaseModel):
+    term: str = Field(..., description="Word or phrase to define (case-insensitive)")
+
+
+class UrbanDefinition(BaseModel):
+    word: str
+    definition: str
+    example: Optional[str] = None
+    thumbs_up: int
+    thumbs_down: int
+    permalink: str
+
+class WikiCrawlRequest(BaseModel):
+    query: str = Field(..., description="A page title or a search phrase. If ambiguous, "
+                                          "the first result is used unless `exact=True`."
+    )
+
+    depth: PositiveInt = Field(1, description="How many link-levels deep to crawl. 1 = just the page itself.")
+    max_pages: PositiveInt = Field(10, description="Hard cap on total pages visited (safety valve).")
+    exact: bool = Field(False, description="If True, treat `query` as an exact page title; otherwise use Wikipedia search.")
+    intro_only: bool = Field(True, description="Return only the summary/introduction instead of full content.")
+
+class WikiPage(BaseModel):
+    title: str
+    url: str
+    summary: str
+    links: List[str]
+
+
+class WikiCrawlResponse(BaseModel):
+    pages: List[WikiPage]
+    visited: int
+    depth_reached: int

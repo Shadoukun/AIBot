@@ -1,16 +1,16 @@
 import functools
 from dataclasses import dataclass
-
+import logging
 import anyio
 import anyio.to_thread
-import discord
 from pydantic import TypeAdapter
 from pydantic_ai import RunContext
 from typing_extensions import TypedDict
 
 from pydantic_ai.tools import Tool
-
 from .models import AgentDependencies
+
+logger = logging.getLogger(__name__)
 
 try:
     from duckduckgo_search import DDGS
@@ -76,8 +76,7 @@ class DuckDuckGoSearchTool:
             return duckduckgo_ta.validate_python(results)
         except Exception as e:
             # Log the error or handle it as needed
-            print(f"Error during DuckDuckGo search: {e}")
-            await ctx.deps.context.send("DuckDuckGo sucks.")  # type: ignore
+            logger.error(f"Error during DuckDuckGo search: {e}")
             return []
         
 
