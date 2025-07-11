@@ -16,9 +16,9 @@ class User(BaseModel):
 
 class AgentDependencies:
     user_list: Optional[list[User]]
-    agent: User
+    agent: Optional[User]
     user: Optional[User]
-    message_id: str
+    message_id: Optional[str] = None
     context:  Optional[commands.Context] = None
     memory: Optional[AsyncMemory] = None
     memories: Optional[list[str]] = None
@@ -42,7 +42,7 @@ class AgentDependencies:
             id=str(member.id),
             name=member.name,
             display_name=member.display_name
-        ) for member in ctx.guild.members if member != ctx.author]
+        ) for member in ctx.guild.members if member != ctx.author] if ctx.guild is not None else []
 
         self.context = ctx
         self.memory = bot.memory
@@ -161,8 +161,12 @@ class PageSummary(BaseModel):
 
 
 class CrawlerOutput(BaseModel):
-    summary: PageSummary = Field(default_factory=PageSummary, description="Summary of the crawled page")
+    summary: PageSummary = Field(default_factory=lambda: PageSummary(url=""), description="Summary of the crawled page")
     links: List[dict[str, str]] = Field(default_factory=list, description="List of URLs found during crawling")
 
 class SummarizeInput(BaseModel):
     text: str
+
+class ReminderInput(BaseModel):
+    time: str = Field(..., description="The time when the reminder should be sent, in HH:MM format.")
+    message: str = Field(..., description="The message to be displayed in the reminder.")

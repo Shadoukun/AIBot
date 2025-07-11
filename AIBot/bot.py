@@ -1,23 +1,29 @@
 import asyncio
+import io
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Any
+
 import discord
-from discord.ext import commands
-from pydantic_ai.messages import ModelMessage
-from pydantic_ai.agent import AgentRunResult
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import umap
+from discord.ext import commands
 from discord.utils import escape_mentions
 
-from .memory import CustomAsyncMemory
-import umap
-from .util import AgentUtilities
-from .models import AgentDependencies
+from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.messages import ModelMessage
+
 from .agents import main_agent, memory_agent, true_false_agent, memory_config
 from .config import config, write_config
-import io
-import random
+from .memory import CustomAsyncMemory
+from .models import AgentDependencies
+from .util import AgentUtilities
+
+# import all the tools after the agents are defined
+
+from . import tools  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
