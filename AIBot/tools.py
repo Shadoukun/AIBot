@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 from datetime import datetime
@@ -93,7 +94,7 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
     number = random.randint(rand.start, rand.limit)
     return RandomNumberResponse(number=number)
 
-@main_agent.tool_plain
+@main_agent.tool_plain(retries=1)
 async def search(query: str) -> AgentResponse:
     """
     Performs a search online for the given query using the search agent.
@@ -111,7 +112,7 @@ async def search(query: str) -> AgentResponse:
     query = query.strip()
 
     try:
-        results = await search_agent.run(query, deps=None, usage_limits=UsageLimits(request_limit=5, response_tokens_limit=2000)) # type: ignore
+        results = await search_agent.run(query, deps=None, usage_limits=UsageLimits(request_limit=10)) # type: ignore
         if results:
             return results.output
         return AgentResponse(content="No results found.")
@@ -198,7 +199,6 @@ async def crawl_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
                     queue.append((link_title, d + 1))
 
     logger.debug(f"Visited {len(visited)} pages, depth reached: {min(req.depth, max((d for _, d in queue), default=0))}")
-    logger.debug([p.summary for p in pages_out])
     
     return WikiCrawlResponse(
         pages=pages_out,

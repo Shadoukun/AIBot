@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, PositiveInt, ValidationError
 from mem0 import AsyncMemory
@@ -18,6 +19,7 @@ class AgentDependencies:
     user_list: Optional[list[User]]
     agent: Optional[User]
     user: Optional[User]
+    channel: Optional[GuildChannel]
     message_id: Optional[str] = None
     context:  Optional[commands.Context] = None
     memory: Optional[AsyncMemory] = None
@@ -166,7 +168,3 @@ class CrawlerOutput(BaseModel):
 
 class SummarizeInput(BaseModel):
     text: str
-
-class ReminderInput(BaseModel):
-    time: str = Field(..., description="The time when the reminder should be sent, in HH:MM format.")
-    message: str = Field(..., description="The message to be displayed in the reminder.")

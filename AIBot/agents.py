@@ -5,6 +5,7 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.common_tools.tavily import tavily_search_tool
 
 from .config import config
 from .duckduckgo import duckduckgo_search_tool
@@ -77,7 +78,7 @@ main_agent = Agent[AgentDependencies, AgentResponse](
 search_agent = Agent[AgentDependencies, AgentResponse](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
-            tools=[duckduckgo_search_tool(max_results=5)],
+            tools=[tavily_search_tool(config.get("TAVILY_API_KEY"))], # type: ignore
             deps_type=AgentDependencies,
             output_type=AgentResponse,
         )
