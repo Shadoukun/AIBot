@@ -8,6 +8,8 @@ from typing import Any
 import discord
 import matplotlib.pyplot as plt
 import numpy as np
+from pydantic_graph import End
+from pydantic_ai.usage import UsageLimits
 import umap
 from discord.ext import commands
 from discord.utils import escape_mentions
@@ -73,10 +75,19 @@ class AIBot(commands.Bot, AgentUtilities):
             logger.debug("on_message | Random Event Triggered")
 
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
-            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" + msg) # type: ignore
+            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" + msg + " /nothink") # type: ignore
             if res.output.result:
                 logger.debug("on_message | Generating Random Event Message")
-                await self.ask_agent(ctx)
+                msg = ("Generate a random message based on the following content: \n\n"
+                       + msg 
+                       + "\n\n Don't use any tools for this."
+                       + " /nothink")
+
+                await self._agent_run(
+                    msg,
+                    AgentDependencies(bot=self, ctx=ctx, memories=[]),
+                    usage_limits=UsageLimits(request_limit=1)
+                )
 
     async def ask_agent(self, ctx: commands.Context):
         """
@@ -97,10 +108,7 @@ class AIBot(commands.Bot, AgentUtilities):
                     logger.debug(f"ask_agent | Memory: {entry['memory']}")
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
 
-            deps = AgentDependencies(bot=self, ctx=ctx, memories=memories)
-            result = await self.agent.run(msg, deps=deps, # type: ignore
-                                          model_settings=MODEL_SETTINGS, # type: ignore
-                                          message_history=self.message_history)
+            result = await self._agent_run(msg, AgentDependencies(bot=self, ctx=ctx, memories=memories))
             
             self.add_message_to_chat_history(result)
 
@@ -155,10 +163,33 @@ class AIBot(commands.Bot, AgentUtilities):
         # Limit the message history to the last 20 messages
         if self.message_history and len(self.message_history) > 20:
             self.message_history = self.message_history[-20:]
+
+    async def _agent_run(self, 
+                         query: str, 
+                         deps: AgentDependencies, 
+                         usage_limits: UsageLimits = UsageLimits(request_limit=5)
+                         ) -> AgentRunResult[Any]:
+        """
+        Run the agent with the given query and dependencies and limits.
+        """
+        async with self.agent.iter(query, 
+                                   deps=deps, 
+                                   usage_limits=usage_limits, 
+                                   model_settings=MODEL_SETTINGS, 
+                                   message_history=self.message_history
+                                   ) as agent_run:
+            
+            node = agent_run.next_node
+            all_nodes = [node]
+
+            while not isinstance(node, End):
+                node = await agent_run.next(node)
+                all_nodes.append(node)
         
-        logger.debug("Message History:\n\n")
-        for msg in self.message_history:
-            logger.debug(msg)
+        if agent_run.result is None:
+            raise ValueError("The agent run did not return a result.")
+
+        return agent_run.result
 
 
 async def memory_timer(bot):
