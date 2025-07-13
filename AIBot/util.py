@@ -7,7 +7,6 @@ from pydantic_ai import Agent
 
 from .prompts import memory_prompt
 from .models import AgentDependencies, AgentResponse, FactResponse
-from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +14,14 @@ class AgentUtilities:
     """ A mixin class that provides utility methods for AIBot"""
 
     # attributes that the main bot class will have
-    user: discord.User
-    watched_channels: list[int]
-    command_prefix: str
-    agent: Agent[AgentDependencies, AgentResponse]
-    memory_agent: Agent[AgentDependencies, FactResponse]
-    memory: AsyncMemory
+    user:               discord.User
+    watched_channels:   list[int]
+    command_prefix:     str
+    agent:              Agent[AgentDependencies, AgentResponse]
+    memory_agent:       Agent[AgentDependencies, FactResponse]
+    memory:             AsyncMemory
 
-    get_channel: Callable[[int], discord.abc.GuildChannel | None]
+    get_channel:        Callable[[int], discord.abc.GuildChannel | None]
 
     @staticmethod
     def remove_command_prefix(msg, prefix='!') -> str:
@@ -52,7 +51,8 @@ class AgentUtilities:
             parsed[channel_id] = []
             logger.debug(f"check_facts | Checking {len(msgs)} for facts in channel {channel_id}")
             for msg in msgs:
-                parsed[channel_id].append({"role": "assistant" if self.user and msg.author.id == self.user.id else "user",
+                parsed[channel_id].append(
+                    {"role": "assistant" if self.user and msg.author.id == self.user.id else "user",
                     "content": msg.content,
                     "user_id": str(msg.author.id)})
     
@@ -107,16 +107,20 @@ class AgentUtilities:
                 continue
             
             logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
-            if facts := [{"role": "assistant" if self.user and f.user_id == self.user.id else "user",
-                        "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
-                        "topic": f.topic if hasattr(f, 'topic') else "",
-                        "user_id": f.user_id}
-                        for f in facts.facts]:
+            try:
+                if facts := [{"role": "assistant" if self.user and f.user_id == self.user.id else "user",
+                            "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
+                            "topic": f.topic if hasattr(f, 'topic') else "",
+                            "user_id": f.user_id}
+                            for f in facts.facts]:
 
-                res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "",
-                                        metadata={"user_id": str(f["user_id"]) for f in facts}, infer=False)
-                    
-                return res.get("results", []) # type: ignore
+                    res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "",
+                                            metadata={"user_id": str(f["user_id"]) for f in facts}, infer=False)
+                        
+                    return res.get("results", []) # type: ignore
+            except Exception as e:
+                logger.error(f"Error adding memories for channel {channel_id}: {e}")
+                continue
             
         return []
 

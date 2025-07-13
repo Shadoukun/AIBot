@@ -2,7 +2,7 @@ import asyncio
 import io
 import logging
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import discord
@@ -28,7 +28,7 @@ from . import tools  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-MODEL_SETTINGS = config.get("MODEL_SETTINGS", {})
+MODEL_SETTINGS = config.get("OLLAMA", {}).get("MODEL_SETTINGS", {})
 
 class AIBot(commands.Bot, AgentUtilities):
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
@@ -42,7 +42,8 @@ class AIBot(commands.Bot, AgentUtilities):
         self.seen_messages:      list[int] = []
         self.seen_cleared_at   = datetime.now(timezone.utc)
         self.memory_checked_at = datetime.now(timezone.utc)
-    
+        self.last_message_was  = datetime.now(timezone.utc)
+
     async def setup_hook(self):
         self.memory = await CustomAsyncMemory.from_config(memory_config)
 
@@ -82,7 +83,7 @@ class AIBot(commands.Bot, AgentUtilities):
                 logger.debug("on_message | Generating Random Event Message")
                 msg = ("Generate a random message based on the following content: \n\n"
                        + msg 
-                       + "\n\n Don't use any tools for this."
+                       + "\n\n Don't use any tools for this. Don't simply repeat the message, but generate a new response based on it."
                        + " /nothink")
 
                 res = await self._agent_run(
@@ -102,6 +103,11 @@ class AIBot(commands.Bot, AgentUtilities):
         Args:
             ctx (commands.Context): the discord context.
         """
+        # Reset message history if it has been more than 5 minutes since the last agent message was added
+        if datetime.now(timezone.utc) - timedelta(minutes=5) > self.last_message_was:
+            self.message_history = []
+        self.last_message_was = datetime.now(timezone.utc)
+        
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
@@ -369,8 +375,18 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
             reaction, _ = await bot.wait_for("reaction_add", timeout=60.0, check=check)
             if str(reaction.emoji) == "✅":
                 await bot.memory.delete(mem_entry["id"])
-                await ctx.send("Memory deleted.")
+                embed = discord.Embed(
+                    title="Memory Deleted",
+                    description=f"DELETE | {mem_entry['memory']}",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
             else:
-                await ctx.send("Memory deletion cancelled.")
+                embed = discord.Embed(
+                    title="Memory Deletion Cancelled",
+                    description="CANCEL | Memory deletion cancelled.",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
         except asyncio.TimeoutError:
             await ctx.send("No reaction received. Memory deletion cancelled.")

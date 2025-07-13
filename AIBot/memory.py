@@ -21,7 +21,7 @@ class CustomAsyncMemory(AsyncMemory):
         infer: bool,
     ):
         """ 
-        An override for _add_to_vector_store to skip the inference to, 
+        An override for _add_to_vector_store to skip the initial inference step, 
         but continue to update and delete existing memories as normal. 
         """
         new_retrieved_facts = [f["content"] for f in messages]
