@@ -8,12 +8,12 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.common_tools.tavily import tavily_search_tool
 
 from .config import config
-from .duckduckgo import duckduckgo_search_tool
 from .models import (
     AgentDependencies,
     AgentResponse,
     BoolResponse,
     FactResponse,
+    SearchResponse,
 )
 from .prompts import (
     default_system_prompt,
@@ -56,11 +56,13 @@ memory_config = {
     "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
 }
 
-
+# crawl4ai browser configuration
 browser_cfg = BrowserConfig(
     browser_type="chromium",
     headless=True,
 )
+
+# Agent models
 
 local_model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
 openrouter_model = OpenAIModel(
@@ -68,6 +70,9 @@ openrouter_model = OpenAIModel(
             provider=OpenRouterProvider(api_key=os.getenv("OPENROUTER_API_KEY", "")),
         )
 
+# Agents
+
+# Main agent used for supervising the other agents
 main_agent = Agent[AgentDependencies, AgentResponse](
             model=local_model,
             instructions=[default_system_prompt],
@@ -75,14 +80,16 @@ main_agent = Agent[AgentDependencies, AgentResponse](
             deps_type=AgentDependencies, 
         )
 
-search_agent = Agent[AgentDependencies, AgentResponse](
+# Search agent for handling search queries
+search_agent = Agent[AgentDependencies, SearchResponse](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
             tools=[tavily_search_tool(config.get("TAVILY_API_KEY"))], # type: ignore
             deps_type=AgentDependencies,
-            output_type=AgentResponse,
+            output_type=SearchResponse,
         )
 
+# Memory agent for handling fact retrieval and memory updates
 memory_agent = Agent[AgentDependencies, FactResponse](
             model=local_model,
             instructions=[fact_retrieval_system_prompt],
@@ -90,6 +97,7 @@ memory_agent = Agent[AgentDependencies, FactResponse](
             deps_type=AgentDependencies,
         )
 
+# Boolean response agent for true/false questions
 true_false_agent = Agent[AgentDependencies, BoolResponse](
             model=local_model,
             instructions=[default_system_prompt],
@@ -97,6 +105,7 @@ true_false_agent = Agent[AgentDependencies, BoolResponse](
             deps_type=AgentDependencies,
         )
 
+# Summary agent for summarizing text
 summary_agent = Agent[None, str](
     model=openrouter_model,
     instructions=["You are a summarization agent. Your only task is to summarize the provided text."],

@@ -24,7 +24,6 @@ from .models import AgentDependencies
 from .util import AgentUtilities
 
 # import all the tools after the agents are defined
-
 from . import tools  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -70,12 +69,15 @@ class AIBot(commands.Bot, AgentUtilities):
             logger.debug(f"on_message | Bot Mentioned | {message.content}")
             await self.ask_agent(ctx)
         elif message.content.startswith(self.command_prefix):
+            logger.debug(f"on_message | Bot Command | {message.content}")
             await self.process_commands(message)
         elif random.random() < 0.05:
-            logger.debug("on_message | Random Event Triggered")
+            logger.debug("on_message | Random Event")
 
-            msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
-            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" + msg + " /nothink") # type: ignore
+            msg = ctx.message.content
+            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" 
+                                             + msg + " /nothink") # type: ignore
+            
             if res.output.result:
                 logger.debug("on_message | Generating Random Event Message")
                 msg = ("Generate a random message based on the following content: \n\n"
@@ -83,11 +85,15 @@ class AIBot(commands.Bot, AgentUtilities):
                        + "\n\n Don't use any tools for this."
                        + " /nothink")
 
-                await self._agent_run(
+                res = await self._agent_run(
                     msg,
                     AgentDependencies(bot=self, ctx=ctx, memories=[]),
-                    usage_limits=UsageLimits(request_limit=1)
+                    usage_limits=UsageLimits(request_limit=5)
                 )
+
+                if res.output and res.output.content:
+                    logger.debug(f"on_message | Random Event Result: {res.output.content}")
+                    await ctx.send(res.output.content)
 
     async def ask_agent(self, ctx: commands.Context):
         """
@@ -102,7 +108,7 @@ class AIBot(commands.Bot, AgentUtilities):
             msg = escape_mentions(msg)
         
             memories = []
-            memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=10)
+            memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=8)
             for entry in memory_results["results"]:
                 if entry and "memory" in entry:
                     logger.debug(f"ask_agent | Memory: {entry['memory']}")

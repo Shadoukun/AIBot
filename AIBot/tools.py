@@ -13,7 +13,6 @@ from pydantic_ai.usage import UsageLimits
 from .agents import browser_cfg, main_agent, search_agent, summary_agent
 from .models import (
     AgentDependencies,
-    AgentResponse,
     CrawlerInput,
     CrawlerOutput,
     DateTimeResponse,
@@ -21,6 +20,7 @@ from .models import (
     PageSummary,
     RandomNumberInput,
     RandomNumberResponse,
+    SearchResponse,
     SummarizeInput,
     UrbanDefinition,
     User,
@@ -68,7 +68,8 @@ async def get_current_date() -> DateTimeResponse:
     """
     Returns the current date and time.
 
-    This asynchronous function retrieves the current date and time, formats them, and returns an AgentResponse containing the formatted date and time.
+    This asynchronous function retrieves the current date and time, formats them,
+    and returns a DateTimeResponse containing the formatted date and time.
 
     Returns:
         DateResponse: An object containing the current date in the format "MM/DD/YYYY" and the current time in the format "HH:MM:SS".
@@ -95,7 +96,7 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
     return RandomNumberResponse(number=number)
 
 @main_agent.tool_plain(retries=1)
-async def search(query: str) -> AgentResponse:
+async def search(query: str) -> SearchResponse:
     """
     Performs a search online for the given query using the search agent.
 
@@ -103,7 +104,7 @@ async def search(query: str) -> AgentResponse:
         query (str): The search query string.
 
     Returns:
-        AgentResponse: The search results as an AgentResponse object.
+        SearchResponse: The search results as a SearchResponse object.
 
     Raises:
         Exception: If an error occurs during the search process.
@@ -112,13 +113,13 @@ async def search(query: str) -> AgentResponse:
     query = query.strip()
 
     try:
-        results = await search_agent.run(query, deps=None, usage_limits=UsageLimits(request_limit=10)) # type: ignore
+        results = await search_agent.run(query, deps=None, usage_limits=UsageLimits(request_limit=5)) # type: ignore
         if results:
             return results.output
-        return AgentResponse(content="No results found.")
+        return SearchResponse(results=[])
     except Exception as e:
         logger.error(f"Error during search: {e}")
-        return AgentResponse(content="No results found.")
+        return SearchResponse(results=[])
 
 @search_agent.tool_plain
 async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
@@ -147,7 +148,7 @@ async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefin
     ]
 
 @search_agent.tool_plain
-async def crawl_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
+async def search_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
     """
     Crawl Wikipedia starting from a query/title, up to `depth` link-levels.
     Returns a WikiCrawlResponse containing WikiPage objects for each visited page.
@@ -181,7 +182,7 @@ async def crawl_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
         if title in visited or d > req.depth:
             continue
         try:
-            page = _fetch_page(title, req.intro_only)
+            page = _fetch_wiki_page(title, req.intro_only)
         except wikipedia.DisambiguationError as e:
             # pick the first suggested page to keep it deterministic
             if e.options:
@@ -212,9 +213,11 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
     Crawls a web page and returns a summary of the discovered pages.
 
     Args:
-        input (CrawlerInput): The input parameters for crawling, including the URL, depth, extraction options, domain filters, maximum pages, and summary inclusion.
+        input (CrawlerInput): The input parameters for crawling, including the URL, depth, 
+        extraction options, domain filters, maximum pages, and summary inclusion.
     Returns:
-        CrawlerOutput: An object containing a list of PageSummary instances for each crawled page, including URL, title, summary, and metadata.
+        CrawlerOutput: An object containing a list of PageSummary instances for each crawled page, 
+        including URL, title, summary, and metadata.
     Raises:
         Exception: If summarization of a page's text fails, the summary will be set to "Summary failed."
     Example:
@@ -262,7 +265,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
     logger.debug(f"Crawled {len(links)} links from {input.url}")   
     return output
 
-def _fetch_page(title: str, intro_only: bool) -> WikiPage:
+def _fetch_wiki_page(title: str, intro_only: bool) -> WikiPage:
     """Helper that grabs a page and returns our WikiPage model."""
     page = wikipedia.page(title, auto_suggest=False)
     text = page.summary if intro_only else page.content

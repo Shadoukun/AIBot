@@ -7,6 +7,7 @@ from pydantic_ai import Agent
 
 from .prompts import memory_prompt
 from .models import AgentDependencies, AgentResponse, FactResponse
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
