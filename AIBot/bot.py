@@ -21,7 +21,7 @@ from .agents import main_agent, memory_agent, true_false_agent, memory_config
 from .config import config, write_config
 from .memory import CustomAsyncMemory
 from .models import AgentDependencies
-from .util import AgentUtilities
+from .util import AgentUtilities, is_admin
 
 # import all the tools after the agents are defined
 from . import tools  # noqa: F401
@@ -330,8 +330,9 @@ async def memories(ctx: commands.Context):
     file = discord.File(buf, filename=f"memory_plot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
     await ctx.send(file=file)
 
+@is_admin
 @bot.command(name="delete_memory")
-async def delete_memory(ctx: commands.Context, memory_content: str):
+async def delete_memory(ctx: commands.Context, *, memory_content: str):
     """
     Delete a specific memory from the bot's memory.
     
@@ -339,11 +340,16 @@ async def delete_memory(ctx: commands.Context, memory_content: str):
         ctx (commands.Context): The context of the command.
         memory_content (str): The content of the memory to delete.
     """
-    if not bot.memory:
-        return
+    memory_content = memory_content.replace("‘", "'").replace("’", "'")
+    print(memory_content)
+
+    if ctx.author.id not in config.get("BOT_ADMINS", []):
+        return await ctx.send("You do not have permission to delete memories.")
 
     memory = await bot.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
     if memory and memory["results"]:
+        if memory_content != memory["results"][0].get("memory", ""):
+            return await ctx.send("No matching memory found.")
         mem_entry = memory["results"][0]
         embed = discord.Embed(
             title="Delete Memory?",
