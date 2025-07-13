@@ -86,17 +86,15 @@ class AgentUtilities:
     
     @staticmethod
     def is_bot_announcement(msg) -> bool:
-
         """
-        Check if the message is from the bot.
+        Check if the message is a preformatted bot announcement.
         """
         return msg.content.startswith("BOT: ")
 
     async def add_memories(self, messages: dict[int, list[discord.Message]]) -> list[dict[str, Any]]:
-        '''
+        """
         Adds messages to the bot's memories and returns the results.
-        '''
-        
+        """
         # checks each channels messages for facts, returns a {channel_id: FactResponse}
         fact_res: dict[int, FactResponse] = await self.check_facts(messages)
         if not fact_res:
@@ -123,6 +121,11 @@ class AgentUtilities:
         return []
 
     async def check_watched_channels(self) -> dict[int, list[discord.Message]]:
+        """
+        Check the watched channels for new messages.
+        Returns a dictionary with channel IDs as keys and lists of messages as values.
+        """
+
         logger.debug("Checking watched channels for new messages...")
     
         after = datetime.now(timezone.utc) - timedelta(minutes=5)

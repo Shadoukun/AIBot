@@ -123,6 +123,7 @@ class AIBot(commands.Bot, AgentUtilities):
                 await ctx.send(result.output.content)
             
     async def add_memories_task(self) -> None:
+        """ Adds memories from watched channels to the bot's memory."""
         logger.debug("add_memories_task | Running memory task...")
 
         watched_msgs = await self.check_watched_channels()
@@ -199,11 +200,13 @@ class AIBot(commands.Bot, AgentUtilities):
 
 
 async def memory_timer(bot):
+    """ Regularly check for new messages to add to memory every 5 minutes."""
     while True:
         await asyncio.sleep(300)  # Wait for 5 minutes
         await bot.add_memories_task()  # Run the memory check function
 
 async def seen_messages_timer(bot):
+    """ Regularly clear the seen messages list every 30 minutes."""
     while True:
         await asyncio.sleep(1800)  # Wait for 30 minutes
         bot.seen_messages = []  # Clear the seen messages every 30 minutes
@@ -326,3 +329,42 @@ async def memories(ctx: commands.Context):
 
     file = discord.File(buf, filename=f"memory_plot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
     await ctx.send(file=file)
+
+@bot.command(name="delete_memory")
+async def delete_memory(ctx: commands.Context, memory_content: str):
+    """
+    Delete a specific memory from the bot's memory.
+    
+    Args:
+        ctx (commands.Context): The context of the command.
+        memory_content (str): The content of the memory to delete.
+    """
+    if not bot.memory:
+        return
+
+    memory = await bot.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
+    if memory and memory["results"]:
+        mem_entry = memory["results"][0]
+        embed = discord.Embed(
+            title="Delete Memory?",
+            description=f"Do you want to delete this memory?\n\n{mem_entry['memory']}",
+            color=discord.Color.red()
+        )
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("✅")
+        await msg.add_reaction("❌")
+
+        def check(reaction, user):
+            return (user == ctx.author and 
+                    reaction.message.id == msg.id and
+                    str(reaction.emoji) in ["✅", "❌"])
+
+        try:
+            reaction, _ = await bot.wait_for("reaction_add", timeout=60.0, check=check)
+            if str(reaction.emoji) == "✅":
+                await bot.memory.delete(mem_entry["id"])
+                await ctx.send("Memory deleted.")
+            else:
+                await ctx.send("Memory deletion cancelled.")
+        except asyncio.TimeoutError:
+            await ctx.send("No reaction received. Memory deletion cancelled.")
