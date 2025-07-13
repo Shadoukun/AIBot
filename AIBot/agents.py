@@ -67,7 +67,7 @@ browser_cfg = BrowserConfig(
 local_model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
 openrouter_model = OpenAIModel(
             'google/gemini-2.5-flash',
-            provider=OpenRouterProvider(api_key=os.getenv("OPENROUTER_API_KEY", "")),
+            provider=OpenRouterProvider(api_key=config.get("OPENROUTER_API_KEY", "")),
         )
 
 # Agents

@@ -13,7 +13,7 @@ logging.basicConfig(
 
 logging.getLogger("AIBot").setLevel(logging.DEBUG)
 
-TOKEN = config.get("TOKEN")
+TOKEN = config.get("DISCORD", {}).get("token")
 
 if __name__ == "__main__":
     try:

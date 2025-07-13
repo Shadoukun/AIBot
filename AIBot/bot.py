@@ -37,7 +37,7 @@ class AIBot(commands.Bot, AgentUtilities):
         self.agent         = main_agent
         self.memory_agent  = memory_agent
 
-        self.watched_channels:   list[int] = config.get("WATCHED_CHANNELS", [])
+        self.watched_channels:   list[int] = config.get("DISCORD", {}).get("watched_channels", [])
         self.message_history:    list[ModelMessage] = []  # type: ignore
         self.seen_messages:      list[int] = []
         self.seen_cleared_at   = datetime.now(timezone.utc)
@@ -54,7 +54,7 @@ class AIBot(commands.Bot, AgentUtilities):
         if self.user and self.user.id:
             logger.info(f'Logged in as {self.user} (ID: {self.user.id})')
             logger.info('------')
-        self.bot_channel = self.get_channel(int(config.get("BOT_CHANNEL_ID", 0)))
+        self.bot_channel = self.get_channel(int(config.get("DISCORD", {}).get("bot_channel_id", 0)))
     
     async def on_message(self, message):
         if message.author == self.user:
@@ -152,6 +152,7 @@ class AIBot(commands.Bot, AgentUtilities):
                 else f"**{r['event']} |** {r['memory']}"
                 for r in res
             ]
+            logger.debug(f"add_memories_task | Added {len(added)} memories.")
 
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
@@ -242,7 +243,7 @@ async def add_watched_channel(ctx: commands.Context):
             bot.watched_channels.append(ctx.channel.id)
 
             # update config
-            config["WATCHED_CHANNELS"] = bot.watched_channels
+            config["DISCORD"]["watched_channels"] = bot.watched_channels
             write_config(config, path="config.yaml")
 
             await ctx.message.add_reaction("✅")
@@ -257,7 +258,7 @@ async def remove_watched_channel(ctx: commands.Context):
             bot.watched_channels.remove(ctx.channel.id)
             
             # update config
-            config["WATCHED_CHANNELS"] = bot.watched_channels
+            config["DISCORD"]["watched_channels"] = bot.watched_channels
             write_config(config, path="config.yaml")
             
             await ctx.message.add_reaction("❌")
@@ -347,10 +348,6 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
         memory_content (str): The content of the memory to delete.
     """
     memory_content = memory_content.replace("‘", "'").replace("’", "'")
-    print(memory_content)
-
-    if ctx.author.id not in config.get("BOT_ADMINS", []):
-        return await ctx.send("You do not have permission to delete memories.")
 
     memory = await bot.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
     if memory and memory["results"]:
@@ -390,3 +387,49 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
                 await ctx.send(embed=embed)
         except asyncio.TimeoutError:
             await ctx.send("No reaction received. Memory deletion cancelled.")
+
+@bot.command(name="search_memory")
+async def search_memory(ctx: commands.Context, *, query: str):
+    """
+    Query the bot's memory for a specific term.
+    """
+    memory = await bot.memory.search(query=query, agent_id=str(bot.user.id if bot.user else ""), limit=20)
+    if memory and memory["results"]:
+        chunks = [memory["results"][i:i + 5] for i in range(0, len(memory["results"]), 5)]
+        current_chunk = 0
+        embed = discord.Embed(
+                    title="Memory",
+                    description="\n\n".join(f"{c['id']}: {c['memory']}" for c in chunks[current_chunk]),
+                    color=discord.Color.green()
+                )
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("⬅️")
+        await msg.add_reaction("➡️")
+
+    def check(reaction, user):
+        return (user == ctx.author and 
+                reaction.message.id == msg.id and
+                str(reaction.emoji) in ["⬅️", "➡️"])
+    try:
+        while True:
+            reaction, _ = await bot.wait_for("reaction_add", timeout=60.0, check=check)
+            if str(reaction.emoji) == "➡️":
+                if current_chunk >= len(chunks) - 1:
+                    await msg.remove_reaction("➡️", ctx.author)
+                else:
+                    current_chunk += 1
+                    if current_chunk < len(chunks):
+                        embed.description = "\n\n".join(f"{c['id']}: {c['memory']}" for c in chunks[current_chunk])
+                        await msg.edit(embed=embed)
+                        await msg.remove_reaction("➡️", ctx.author)
+
+            elif str(reaction.emoji) == "⬅️":
+                if current_chunk == 0:
+                    await msg.remove_reaction("⬅️", ctx.author)
+                if current_chunk > 0:
+                    current_chunk -= 1
+                    embed.description = "\n\n".join(f"{c['id']}: {c['memory']}" for c in chunks[current_chunk])
+                    await msg.edit(embed=embed)
+                    await msg.remove_reaction("⬅️", ctx.author)
+    except asyncio.TimeoutError:
+        return

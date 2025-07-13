@@ -153,7 +153,7 @@ async def is_admin(ctx, *args, **kwargs) -> Callable:
     """
     async def decorator(func):
         async def wrapper(self, ctx, *args, **kwargs):
-            if ctx.author.id in self.bot.config.get("BOT_ADMINS", []):
+            if ctx.author.id in self.bot.config.get("DISCORD", {}).get("bot_admins", []):
                 return await func(self, ctx, *args, **kwargs)
             await ctx.send("You do not have permission to use this command.")
         return wrapper
