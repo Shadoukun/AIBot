@@ -10,7 +10,7 @@ from pyurbandict import UrbanDict
 from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 
-from .agents import browser_cfg, main_agent, search_agent, summary_agent
+from .agents import browser_cfg, main_agent, search_agent, summary_agent, run_config
 from .models import (
     AgentDependencies,
     CrawlerInput,
@@ -229,7 +229,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
             domain_filter=["example.com"],
             include_summary=True
     """
-    async with AsyncWebCrawler(config=browser_cfg) as crawler:
+    async with AsyncWebCrawler(config=browser_cfg, run_config=run_config) as crawler:
         crawl_result = await crawler.arun(input.url)
 
     if not crawl_result.success: # type: ignore
@@ -247,7 +247,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
         logger.debug("Summarizing page content...")
         try:
             res = await summary_agent.run(
-                SummarizeInput(text=crawl_result.markdown), # type: ignore
+                SummarizeInput(text=crawl_result.markdown.fit_markdown), # type: ignore
                 deps=None,  # type: ignore
                 output_type=str, # type: ignore
             )

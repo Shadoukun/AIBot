@@ -51,6 +51,10 @@ class AgentUtilities:
             parsed[channel_id] = []
             logger.debug(f"check_facts | Checking {len(msgs)} for facts in channel {channel_id}")
             for msg in msgs:
+                # Skip bot announcements and messages with embeds
+                if len(msg.embeds) > 0 or self.is_bot_announcement(msg):
+                    continue 
+                    
                 parsed[channel_id].append(
                     {"role": "assistant" if self.user and msg.author.id == self.user.id else "user",
                     "content": msg.content,
