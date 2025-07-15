@@ -3,7 +3,9 @@ import io
 import logging
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Any
+import re
+from typing import Any, Set
+from urllib.parse import urlparse
 
 import discord
 import matplotlib.pyplot as plt
@@ -38,6 +40,7 @@ class AIBot(commands.Bot, AgentUtilities):
         self.memory_agent  = memory_agent
 
         self.watched_channels:   list[int] = config.get("DISCORD", {}).get("watched_channels", [])
+        self.watched_domains:    Set[str] = set(config.get("DISCORD", {}).get("watched_domains", []))
         self.message_history:    list[ModelMessage] = []  # type: ignore
         self.seen_messages:      list[int] = []
         self.seen_cleared_at   = datetime.now(timezone.utc)
@@ -60,18 +63,26 @@ class AIBot(commands.Bot, AgentUtilities):
         if message.author == self.user:
             return
         
+        ctx = await self.get_context(message)
+
         # for now ignore messages with URLs
         if "http://" in message.content or "https://" in message.content:
-            logger.debug("on_message | Message contains a URL. Ignoring.")
+            urls = re.findall(r'https?://[^\s]+', message.content)
+            for url in urls:
+                parsed_url = urlparse(url)
+                if parsed_url.netloc in self.watched_domains:
+                    logger.debug(f"on_message | Ignoring message with URL: {url}")
+            
             return
 
-        ctx = await self.get_context(message)
         if self.user and self.user.mentioned_in(message):
             logger.debug(f"on_message | Bot Mentioned | {message.content}")
             await self.ask_agent(ctx)
+
         elif message.content.startswith(self.command_prefix):
             logger.debug(f"on_message | Bot Command | {message.content}")
             await self.process_commands(message)
+
         elif random.random() < 0.05:
             logger.debug("on_message | Random Event")
 

@@ -1,6 +1,5 @@
 import os
 import logging
-from crawl4ai import BrowserConfig, CacheMode, CrawlerRunConfig, DefaultMarkdownGenerator, PruningContentFilter
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -55,35 +54,6 @@ memory_config = {
     "custom_update_memory_prompt": custom_update_prompt(),
     "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
 }
-
-# crawl4ai browser configuration
-browser_cfg = BrowserConfig(
-    browser_type="chromium",
-    headless=True,
-)
-
-prune_filter = PruningContentFilter(
-        # Lower → more content retained, higher → more content pruned
-        threshold=0.45,           
-        # "fixed" or "dynamic"
-        threshold_type="fixed",  
-        # Ignore nodes with <5 words
-        min_word_threshold=10
-              
-    )
-
-md_generator = DefaultMarkdownGenerator(content_filter=prune_filter)
-
-run_config = CrawlerRunConfig(
-    # Core
-    verbose=True,
-    cache_mode=CacheMode.BYPASS,
-    markdown_generator=md_generator,
-    exclude_external_links=True,
-    exclude_all_images=True,
-    exclude_social_media_links=True,
-    excluded_tags=["nav", "footer", "script", "style"],
-)
 
 # Agent models
 

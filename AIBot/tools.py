@@ -10,7 +10,8 @@ from pyurbandict import UrbanDict
 from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 
-from .agents import browser_cfg, main_agent, search_agent, summary_agent, run_config
+from .agents import main_agent, search_agent, summary_agent
+from .crawler import browser_cfg, run_config
 from .models import (
     AgentDependencies,
     CrawlerInput,
