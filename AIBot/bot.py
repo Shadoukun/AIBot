@@ -69,6 +69,7 @@ class AIBot(commands.Bot, AgentUtilities):
         if self.user and self.user.id:
             logger.info(f'Logged in as {self.user} (ID: {self.user.id})')
             logger.info('------')
+
         self.bot_channel = self.get_channel(int(config.get("DISCORD", {}).get("bot_channel_id", 0)))
     
     async def on_message(self, message):
@@ -108,7 +109,6 @@ class AIBot(commands.Bot, AgentUtilities):
                 res = await self._agent_run(
                     random_message_prompt(msg),
                     AgentDependencies(bot=self, ctx=ctx, memories=[]),
-                    usage_limits=UsageLimits(request_limit=5)
                 )
 
                 if res.output and res.output.content:
@@ -196,44 +196,30 @@ class AIBot(commands.Bot, AgentUtilities):
             memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=8)
             for entry in memory_results["results"]:
                 if entry and "memory" in entry:
-                    logger.debug(f"ask_agent | Memory: {entry['memory']}")
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
 
             result = await self._agent_run(msg, AgentDependencies(bot=self, ctx=ctx, memories=memories))
             
             self.add_message_to_chat_history(ctx, result)
 
-            if result.output and result.output.content:
+            if result.output:
                 logger.debug(f"Agent Result: {result.output}")
-                await ctx.send(result.output.content)
-            
-    
+                await ctx.send(result.output)
+
     async def _agent_run(self, 
                          query: str,
                          deps: AgentDependencies, 
-                         usage_limits: UsageLimits = UsageLimits(request_limit=3),
-                         message_history: list[ModelMessage] | None = None, 
                          ) -> AgentRunResult[Any]:
         """
         Run the agent with the given query and dependencies and limits.
         """
-        async with self.agent.iter(query, deps=deps, 
-                                   usage_limits=usage_limits, 
+        agent_run = await self.agent.run(query, deps=deps, 
+                                   usage_limits=UsageLimits(request_limit=3), 
                                    model_settings=MODEL_SETTINGS, 
-                                   message_history=message_history
-                                   ) as agent_run:
-            
-            node = agent_run.next_node
-            all_nodes = [node]
-
-            while not isinstance(node, End):
-                node = await agent_run.next(node)
-                all_nodes.append(node)
+                                   message_history=self.message_history[deps.channel.id] if deps.channel else None
+                                   )
         
-        if agent_run.result is None:
-            raise ValueError("The agent run did not return a result.")
-
-        return agent_run.result
+        return agent_run
     
     async def add_memories_task(self) -> None:
         """ Adds memories from watched channels to the bot's memory."""

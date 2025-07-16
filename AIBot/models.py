@@ -25,7 +25,6 @@ class AgentDependencies:
     context:  Optional[commands.Context] = None
     memory: Optional[AsyncMemory] = None
     memories: Optional[list[str]] = None
-    memory_added: bool = False
     bot_channel: Optional[GuildChannel] = None
 
     def __init__(self, bot, ctx: commands.Context, memories: Optional[list[str]] = None):
@@ -48,6 +47,7 @@ class AgentDependencies:
         ) for member in ctx.guild.members if member != ctx.author] if ctx.guild is not None else []
 
         self.context = ctx
+        self.channel = ctx.channel # type: ignore
         self.memory = bot.memory
         self.memories = memories
         self.message_id = str(ctx.message.id) if ctx.message else "None"

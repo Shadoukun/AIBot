@@ -51,6 +51,7 @@ async def get_current_user(ctx: RunContext[AgentDependencies]) -> User:
     """
     return ctx.deps.user if ctx.deps.user else User(id="", name="", display_name="")
 
+
 @main_agent.tool
 async def get_user_list(ctx: RunContext[AgentDependencies]) -> List[User]:
     """
@@ -62,6 +63,7 @@ async def get_user_list(ctx: RunContext[AgentDependencies]) -> List[User]:
         List[User]: A list of User objects representing users in the server.
     """
     return ctx.deps.user_list if ctx.deps.user_list else []
+
 
 @main_agent.tool_plain
 async def get_current_date() -> DateTimeResponse:
@@ -77,6 +79,7 @@ async def get_current_date() -> DateTimeResponse:
     date = datetime.now().strftime("%m/%d/%Y")
     time = datetime.now().strftime("%H:%M:%S")
     return DateTimeResponse(date=date, time=time)
+
 
 @main_agent.tool_plain
 async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
@@ -95,6 +98,7 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
     number = random.randint(rand.start, rand.limit)
     return RandomNumberResponse(number=number)
 
+
 @main_agent.tool_plain(retries=1)
 async def search(query: str) -> str:
     """
@@ -112,24 +116,16 @@ async def search(query: str) -> str:
     logger.debug(f"Search Query: {query}")
     query = query.strip()
     try:
-        async with search_agent.iter(query, 
-                                     deps=None, 
-                                     usage_limits=UsageLimits(request_limit=2)) as agent_run:
-            
-            node = agent_run.next_node
-            all_nodes = [node]
-
-            while not isinstance(node, End):
-                node = await agent_run.next(node)
-                all_nodes.append(node)
+        agent_run = await search_agent.run(query, usage_limits=UsageLimits(request_limit=2))
+        if agent_run and agent_run.output:
+            return str(agent_run.output)
+        else:
+            return "No results found."
         
-        if agent_run.result:
-            return str(agent_run.result.output)
         
-        return "The search did not return any results."
-
-    except Exception as e:
+    except Exception:
         return "Error during search."
+
 
 @search_agent.tool_plain
 async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
@@ -152,6 +148,7 @@ async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefin
         )
         for e in entries[:10]
     ]
+
 
 @search_agent.tool_plain
 async def search_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
@@ -212,6 +209,7 @@ async def search_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
         visited=len(visited),
         depth_reached=min(req.depth, max((d for _, d in queue), default=0)),
     )
+
 
 @search_agent.tool_plain
 async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
