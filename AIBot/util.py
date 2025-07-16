@@ -74,21 +74,6 @@ class AgentUtilities:
         return {}
     
     @staticmethod
-    def format_memory_messages(messages: dict[int, FactResponse]) -> list[dict[str, str]]:
-        """
-        Format the messages for memory addition.
-        """
-        formatted = []
-        for channel_id, msgs in messages.items():
-            for fact in msgs.facts:
-                formatted.append({
-                    "role": "assistant" if fact.user_id == str(channel_id) else "user",
-                    "content": fact.content,
-                    "user_id": fact.user_id
-                })
-        return formatted
-    
-    @staticmethod
     def is_bot_announcement(msg) -> bool:
         """
         Check if the message is a preformatted bot announcement.
@@ -112,15 +97,12 @@ class AgentUtilities:
             
             logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
             try:
-                if facts := [{"role": "assistant" if self.user and f.user_id == self.user.id else "user",
-                            "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
-                            "topic": f.topic if hasattr(f, 'topic') else "",
-                            "user_id": f.user_id}
-                            for f in facts.facts]:
+                if facts := [{"role": "user",
+                              "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
+                              "topic": f.topic if hasattr(f, 'topic') else ""} for f in facts.facts]:
 
-                    res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "",
-                                            metadata={"user_id": str(f["user_id"]) for f in facts}, infer=False)
-                        
+                    res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "", infer=False)
+    
                     return res.get("results", []) # type: ignore
             except Exception as e:
                 logger.error(f"Error adding memories for channel {channel_id}: {e}")

@@ -92,14 +92,12 @@ class Fact(BaseModel):
     """Model for individual facts extracted from text"""
     topic: str = Field(..., description="The topic or subject of the fact. one or two keywords")
     content: str = Field(..., description="The content of the fact.")
-    user_id: str = Field(..., description="The ID of the user who provided the fact.")
 
     def __str__(self) -> str:
         """Return a string representation of the Fact."""
         return json.dumps({
             "topic": self.topic,
             "content": self.content,
-            "user_id": self.user_id
         })
 
 class FactResponse(BaseModel):

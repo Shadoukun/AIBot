@@ -211,14 +211,13 @@ class AIBot(commands.Bot, AgentUtilities):
     async def _agent_run(self, 
                          query: str,
                          deps: AgentDependencies, 
-                         usage_limits: UsageLimits = UsageLimits(request_limit=5),
+                         usage_limits: UsageLimits = UsageLimits(request_limit=3),
                          message_history: list[ModelMessage] | None = None, 
                          ) -> AgentRunResult[Any]:
         """
         Run the agent with the given query and dependencies and limits.
         """
-        async with self.agent.iter(query, 
-                                   deps=deps, 
+        async with self.agent.iter(query, deps=deps, 
                                    usage_limits=usage_limits, 
                                    model_settings=MODEL_SETTINGS, 
                                    message_history=message_history
@@ -255,12 +254,10 @@ class AIBot(commands.Bot, AgentUtilities):
 
         # add memories
         if res := await self.add_memories(watched_msgs):
-            added: list[str] = [
-                f"**{r['event']} |** {r['previous_memory']} **->**\n{r['memory']}" if r.get('previous_memory')
-                else f"**{r['event']} |** {r['memory']}"
-                for r in res
-            ]
-            logger.debug(f"add_memories_task | Added {len(added)} memories.")
+            added = [
+                f"**{r['event']} |** "
+                + (f"{prev_m} **->**\n{r['memory']}" if (prev_m := r.get('previous_memory')) and prev_m != r['memory'] else r['memory'])
+                for r in res]
 
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
@@ -418,7 +415,6 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
         ctx (commands.Context): The context of the command.
         memory_content (str): The content of the memory to delete.
     """
-    memory_content = memory_content.replace("‘", "'").replace("’", "'")
 
     memory = await bot.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
     if memory and memory["results"]:
