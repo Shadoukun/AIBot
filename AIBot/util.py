@@ -18,7 +18,7 @@ class AgentUtilities:
     watched_channels:   list[int]
     command_prefix:     str
     agent:              Agent[AgentDependencies, AgentResponse]
-    memory_agent:       Agent[AgentDependencies, FactResponse]
+    memory_agent:       Agent[None, FactResponse]
     memory:             AsyncMemory
 
     get_channel:        Callable[[int], discord.abc.GuildChannel | None]
@@ -64,7 +64,7 @@ class AgentUtilities:
         for c, msgs in parsed.items():
             prompt = memory_prompt(msgs)
             logger.debug(f"check_facts | Running memory agent for channel {c}")
-            res = await self.memory_agent.run(prompt, deps=None, output_type=FactResponse) # type: ignore
+            res = await self.memory_agent.run(prompt) 
             if res:
                 output[c] = res.output
 

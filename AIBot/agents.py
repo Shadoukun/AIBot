@@ -18,7 +18,8 @@ from .prompts import (
     default_system_prompt,
     search_agent_system_prompt,
     fact_retrieval_system_prompt,
-    custom_update_prompt
+    custom_update_prompt,
+    true_false_system_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -74,28 +75,25 @@ main_agent = Agent[AgentDependencies, AgentResponse](
         )
 
 # Search agent for handling search queries
-search_agent = Agent[AgentDependencies, SearchResponse](
+search_agent = Agent[None, SearchResponse](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
             tools=[tavily_search_tool(config.get("TAVILY_API_KEY"))], # type: ignore
-            deps_type=AgentDependencies,
             output_type=SearchResponse,
         )
 
 # Memory agent for handling fact retrieval and memory updates
-memory_agent = Agent[AgentDependencies, FactResponse](
+memory_agent = Agent[None, FactResponse](
             model=local_model,
             instructions=[fact_retrieval_system_prompt],
             output_type=FactResponse,
-            deps_type=AgentDependencies,
         )
 
 # Boolean response agent for true/false questions
-true_false_agent = Agent[AgentDependencies, BoolResponse](
+true_false_agent = Agent[None, BoolResponse](
             model=local_model,
-            instructions=[default_system_prompt],
+            instructions=[true_false_system_prompt],
             output_type=BoolResponse,
-            deps_type=AgentDependencies,
         )
 
 # Summary agent for summarizing text
@@ -103,5 +101,4 @@ summary_agent = Agent[None, str](
     model=openrouter_model,
     instructions=["You are a summarization agent. Your only task is to summarize the provided text."],
     output_type=str,
-    deps_type=type(None),
 )

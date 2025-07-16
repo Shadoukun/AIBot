@@ -4,7 +4,7 @@ from pydantic_ai import RunContext, format_prompt
 
 from .models import AgentDependencies
 
-def search_agent_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
+def search_agent_system_prompt() -> str:
     prompt = {}
     prompt_str = ""
 
@@ -64,6 +64,24 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
             prompt_str += "\n" + format_prompt.format_as_xml(ctx.deps.memories, item_tag="memory", root_tag="memories")
 
     return prompt_str
+
+def true_false_system_prompt() -> str:
+    """
+    Generate the system prompt for true/false questions.
+    """
+    system = "You are an AI assistant that answers true/false questions. " + \
+             "You must provide a clear and concise answer, either 'true' or 'false'."
+
+    rules = [
+        "Answer only with 'true' or 'false'.",
+        "Do not provide explanations or additional information.",
+        "If the question is ambiguous or cannot be answered with certainty, respond with 'unknown'."
+    ]
+
+    return "\n".join([
+        format_prompt.format_as_xml(system, item_tag="system", root_tag="system"),
+        format_prompt.format_as_xml(rules, item_tag="rule", root_tag="rules")
+    ])
 
 def custom_update_prompt() -> str:
     """
