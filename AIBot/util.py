@@ -6,7 +6,7 @@ from mem0 import AsyncMemory
 from pydantic_ai import Agent
 
 from .prompts import memory_prompt
-from .models import AgentDependencies, AgentResponse, FactResponse
+from .models import AgentDependencies, FactResponse
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class AgentUtilities:
     user:               discord.User
     watched_channels:   list[int]
     command_prefix:     str
-    agent:              Agent[AgentDependencies, AgentResponse]
+    agent:              Agent[AgentDependencies, str]
     memory_agent:       Agent[None, FactResponse]
     memory:             AsyncMemory
 

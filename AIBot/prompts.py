@@ -11,14 +11,13 @@ def search_agent_system_prompt() -> str:
     prompt["system"] = (
         "You are an AI assistant that is designed to search the web for information. "
         "You try to find the most relevant keywords and search for them."
-        "You have various tools at your disposal to help you search."
     )
 
     rules = [
         "You must attempt to search using the most relevant keywords.",
         "Do not crawl over the same page multiple times.",
         "Do not use the same keywords multiple times with the same tool.",
-        "Try to use the most relevant tool for the search.",
+        "Do not repeat searches."
     ]
 
     prompt_str += format_prompt.format_as_xml(rules, item_tag="rule", root_tag="rules")

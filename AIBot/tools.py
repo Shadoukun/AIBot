@@ -4,6 +4,7 @@ import random
 from datetime import datetime
 from typing import List, Set
 
+from pydantic_graph import End
 import wikipedia
 from crawl4ai import AsyncWebCrawler
 from pyurbandict import UrbanDict
@@ -21,8 +22,6 @@ from .models import (
     PageSummary,
     RandomNumberInput,
     RandomNumberResponse,
-    SearchResponse,
-    SummarizeInput,
     UrbanDefinition,
     User,
     WikiCrawlRequest,
@@ -97,7 +96,7 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
     return RandomNumberResponse(number=number)
 
 @main_agent.tool_plain(retries=1)
-async def search(query: str) -> SearchResponse:
+async def search(query: str) -> str:
     """
     Performs a search online for the given query using the search agent.
 
@@ -105,22 +104,32 @@ async def search(query: str) -> SearchResponse:
         query (str): The search query string.
 
     Returns:
-        SearchResponse: The search results as a SearchResponse object.
+        str: The search results as a string. (at the moment)
 
     Raises:
         Exception: If an error occurs during the search process.
     """
     logger.debug(f"Search Query: {query}")
     query = query.strip()
-
     try:
-        results = await search_agent.run(query, deps=None, usage_limits=UsageLimits(request_limit=5)) # type: ignore
-        if results:
-            return results.output
-        return SearchResponse(results=[])
+        async with search_agent.iter(query, 
+                                     deps=None, 
+                                     usage_limits=UsageLimits(request_limit=2)) as agent_run:
+            
+            node = agent_run.next_node
+            all_nodes = [node]
+
+            while not isinstance(node, End):
+                node = await agent_run.next(node)
+                all_nodes.append(node)
+        
+        if agent_run.result:
+            return str(agent_run.result.output)
+        
+        return "The search did not return any results."
+
     except Exception as e:
-        logger.error(f"Error during search: {e}")
-        return SearchResponse(results=[])
+        return "Error during search."
 
 @search_agent.tool_plain
 async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
@@ -140,10 +149,6 @@ async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefin
         UrbanDefinition(
             word=e.word,
             definition=e.definition,
-            example=e.example,
-            thumbs_up=e.thumbs_up,
-            thumbs_down=e.thumbs_down,
-            permalink=e.permalink,
         )
         for e in entries[:10]
     ]
@@ -230,6 +235,9 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
             domain_filter=["example.com"],
             include_summary=True
     """
+
+    # so much ignore
+
     async with AsyncWebCrawler(config=browser_cfg, run_config=run_config) as crawler:
         crawl_result = await crawler.arun(input.url)
 
@@ -247,11 +255,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
     if input.include_summary and crawl_result.markdown: # type: ignore
         logger.debug("Summarizing page content...")
         try:
-            res = await summary_agent.run(
-                SummarizeInput(text=crawl_result.markdown.fit_markdown), # type: ignore
-                deps=None,  # type: ignore
-                output_type=str, # type: ignore
-            )
+            res = await summary_agent.run(crawl_result.markdown.fit_markdown) # type: ignore
             summary = res.output if res else "Summary failed."
         except Exception as e:
             logger.error(f"Error summarizing page content: {e}")

@@ -9,7 +9,6 @@ from pydantic_ai.common_tools.tavily import tavily_search_tool
 from .config import config
 from .models import (
     AgentDependencies,
-    AgentResponse,
     BoolResponse,
     FactResponse,
     SearchResponse,
@@ -37,10 +36,9 @@ openrouter_model = OpenAIModel(
 # Agents
 
 # Main agent used for supervising the other agents
-main_agent = Agent[AgentDependencies, AgentResponse](
+main_agent = Agent[AgentDependencies, str](
             model=local_model,
             instructions=[default_system_prompt],
-            output_type=AgentResponse, 
             deps_type=AgentDependencies, 
         )
 

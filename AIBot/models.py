@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, PositiveInt, ValidationError
 from mem0 import AsyncMemory
 from discord.ext import commands
 from discord.abc import GuildChannel
+import json
 
 class User(BaseModel):
     """Model for user information"""
@@ -52,41 +53,62 @@ class AgentDependencies:
         self.message_id = str(ctx.message.id) if ctx.message else "None"
         self.bot_channel = bot.bot_channel if hasattr(bot, 'bot_channel') else None
 
-class AgentResponse(BaseModel):
-    """Model for Main Agent Responses"""
-    content: str = Field(description="The main answer to the user's question.")
-
-    def __str__(self) -> str:
-        """Return a string representation of the AgentResponse."""
-        return self.content.strip() if self.content else ""
-
 class SearchResult(BaseModel):
     """Model for individual search results"""
     title: str = Field(..., description="The title of the search result.")
     url: str = Field(..., description="The URL of the search result.")
-    snippet: str = Field(..., description="A brief snippet or summary of the search result.")
+    summary: str = Field(..., description="A brief snippet or summary of the search result.")
 
     def __str__(self) -> str:
-        """Return a string representation of the SearchResult."""
-        return f"<title>{self.title}</title>\n<url>({self.url})</url>\n<summary>{self.snippet}</summary>"
+        return json.dumps({
+            "title": self.title,
+            "url": self.url,
+            "summary": self.summary,
+        })
 
+class DictSearchResult(BaseModel):
+    """Model for individual dictionary results"""
+    word: str = Field(..., description="The word being defined.")
+    definition: str = Field(..., description="The definition of the word.")
+    example: Optional[str] = Field(None, description="An example usage of the word.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the DictResult."""
+        return json.dumps({
+            "word": self.word,
+            "definition": self.definition,
+            "example": self.example
+        })
+    
 class SearchResponse(BaseModel):
     """Model for Search Agent Responses"""
-    results: list[SearchResult] = Field(default_factory=list, description="A list of search results.")
+    results: list[SearchResult | DictSearchResult] = Field(default_factory=list, description="A list of search results.")
 
+    def __str__(self) -> str:
+        """Return a JSON string representation of the SearchResponse."""
+        return json.dumps({"results": [result.model_dump_json() for result in self.results]})
+    
 class Fact(BaseModel):
     """Model for individual facts extracted from text"""
     topic: str = Field(..., description="The topic or subject of the fact. one or two keywords")
     content: str = Field(..., description="The content of the fact.")
     user_id: str = Field(..., description="The ID of the user who provided the fact.")
 
+    def __str__(self) -> str:
+        """Return a string representation of the Fact."""
+        return json.dumps({
+            "topic": self.topic,
+            "content": self.content,
+            "user_id": self.user_id
+        })
+
 class FactResponse(BaseModel):
     """Model for Fact Agent Responses"""
     facts: list[Fact] = Field(default_factory=list, description="A list of facts extracted from the input text.")
 
     def __str__(self) -> str:
-        """Return a string representation of the FactResponse."""
-        return ", ".join([f"{fact.content} (User ID: {fact.user_id})" for fact in self.facts]).strip() if self.facts else ""
+        """Return a JSON string representation of the FactResponse."""
+        return json.dumps({"facts": [fact.model_dump_json() for fact in self.facts]})
 
 class BoolResponse(BaseModel):
     """Model for True/False Agent Responses"""
@@ -110,7 +132,9 @@ class RandomNumberResponse(BaseModel):
 
     def __str__(self) -> str:
         """Return a string representation of the RandomNumberResponse."""
-        return f"Your random number is: {self.number}"
+        return json.dumps({
+            "number": self.number
+        })
     
 class DateTimeResponse(BaseModel):
     """Model for Date and Time Responses"""
@@ -119,7 +143,10 @@ class DateTimeResponse(BaseModel):
 
     def __str__(self) -> str:
         """Return a string representation of the DateResponse."""
-        return f"The current date is {self.date}. The current time is {self.time}."
+        return json.dumps({
+            "date": self.date,
+            "time": self.time
+        })
     
 class WikipediaSearchResult(BaseModel):
     """Model for individual Wikipedia search results"""
@@ -134,10 +161,6 @@ class UrbanDefinition(BaseModel):
     """Model for individual Urban Dictionary definitions"""
     word: str
     definition: str
-    example: Optional[str] = None
-    thumbs_up: int
-    thumbs_down: int
-    permalink: str
 
 class WikiCrawlRequest(BaseModel):
     """Model for requests to crawl Wikipedia pages"""
@@ -191,7 +214,3 @@ class CrawlerOutput(BaseModel):
     """Model for output from the web crawler"""
     summary: PageSummary = Field(default_factory=lambda: PageSummary(url=""), description="Summary of the crawled page")
     links: List[dict[str, str]] = Field(default_factory=list, description="List of URLs found during crawling")
-
-class SummarizeInput(BaseModel):
-    """Model for input to the summarization agent"""
-    text: str
