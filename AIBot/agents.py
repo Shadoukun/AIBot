@@ -18,7 +18,6 @@ from .prompts import (
     default_system_prompt,
     search_agent_system_prompt,
     fact_retrieval_system_prompt,
-    custom_update_prompt,
     true_false_system_prompt
 )
 
@@ -26,35 +25,6 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = config.get("MODEL_NAME", "google/gemini-2.5-flash")
 BASE_URL = config.get("BASE_URL", "http://localhost:11434/v1")
-
-# mem0 config
-memory_config = {
-    "vector_store": {
-        "provider": "chroma",
-        "config": {
-            "collection_name": "memory",
-            "path": "db",
-        }
-    },
-    "llm": {
-        "provider": "ollama",
-        "config": {
-            "model": MODEL_NAME,
-            "temperature": 0.6,
-            "max_tokens": 2000,
-            "ollama_base_url": "http://localhost:11434",
-        },
-    },
-    "embedder": {
-        "provider": "ollama",
-        "config": {
-            "model": "nomic-embed-text:latest",
-            "ollama_base_url": "http://localhost:11434",
-        },
-    },
-    "custom_update_memory_prompt": custom_update_prompt(),
-    "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
-}
 
 # Agent models
 

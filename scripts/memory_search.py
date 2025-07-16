@@ -5,7 +5,7 @@ from typing import Any
 from mem0 import Memory
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from AIBot.agents import memory_config  
+from AIBot.config import memory_config  
 
 memory = Memory.from_config(memory_config)
 

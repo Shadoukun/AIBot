@@ -271,3 +271,13 @@ def fact_retrieval_system_prompt() -> str:
     ])
 
     return prompt
+
+def random_message_prompt(msg: str) -> str:
+    """
+    Generate a random message prompt.
+    """
+    prompt = ("Respond to the following message naturally: \n\n"
+                       + msg 
+                       + "\n\n Don't use any tools for this. Don't simply repeat the message, but generate a new response based on it."
+                       + " /nothink")
+    return prompt

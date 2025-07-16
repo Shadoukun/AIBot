@@ -4,7 +4,7 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 import re
-from typing import Any, Set
+from typing import Any
 from urllib.parse import urlparse
 
 import discord
@@ -17,10 +17,12 @@ from discord.ext import commands
 from discord.utils import escape_mentions
 
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
-from .agents import main_agent, memory_agent, true_false_agent, memory_config
-from .config import config, write_config
+from AIBot.prompts import random_message_prompt
+
+from .agents import main_agent, memory_agent, true_false_agent
+from .config import config, write_config, memory_config
 from .memory import CustomAsyncMemory
 from .models import AgentDependencies
 from .util import AgentUtilities, is_admin
@@ -40,13 +42,23 @@ class AIBot(commands.Bot, AgentUtilities):
         self.memory_agent  = memory_agent
 
         self.watched_channels:   list[int] = config.get("DISCORD", {}).get("watched_channels", [])
-        self.watched_domains:    Set[str] = set(config.get("DISCORD", {}).get("watched_domains", []))
-        self.message_history:    list[ModelMessage] = []  # type: ignore
+        self.watched_domains:    list[str] = config.get("DISCORD", {}).get("watched_domains", [])
+        self.message_history:    dict[int, Any] = {}
         self.seen_messages:      list[int] = []
         self.seen_cleared_at   = datetime.now(timezone.utc)
         self.memory_checked_at = datetime.now(timezone.utc)
-        self.last_message_was  = datetime.now(timezone.utc)
-
+        self.last_message_was:   dict[int, datetime] = {}
+    
+    def active_conversation(self, channel_id: int) -> bool:
+        """
+        Check if there is an active conversation in the given channel.
+        """
+        if not self.message_history.get(channel_id):
+            return False
+        
+        last_time = self.last_message_was.get(channel_id, datetime.min.replace(tzinfo=timezone.utc))
+        return (datetime.now(timezone.utc) - last_time) < timedelta(minutes=5)
+    
     async def setup_hook(self):
         self.memory = await CustomAsyncMemory.from_config(memory_config)
 
@@ -92,13 +104,9 @@ class AIBot(commands.Bot, AgentUtilities):
             
             if res.output.result:
                 logger.debug("on_message | Generating Random Event Message")
-                msg = ("Generate a random message based on the following content: \n\n"
-                       + msg 
-                       + "\n\n Don't use any tools for this. Don't simply repeat the message, but generate a new response based on it."
-                       + " /nothink")
-
+               
                 res = await self._agent_run(
-                    msg,
+                    random_message_prompt(msg),
                     AgentDependencies(bot=self, ctx=ctx, memories=[]),
                     usage_limits=UsageLimits(request_limit=5)
                 )
@@ -107,6 +115,65 @@ class AIBot(commands.Bot, AgentUtilities):
                     logger.debug(f"on_message | Random Event Result: {res.output.content}")
                     await ctx.send(res.output.content)
 
+        if self.active_conversation(ctx.channel.id):
+            self.message_history[ctx.channel.id].append(user_msg(message.content))
+    
+    def is_valid_message(self, message: discord.Message) -> bool:
+        """
+        Check if the message is valid for processing.
+        """
+        if message.content.startswith(str(self.command_prefix)):
+            return False
+        if message.content.startswith("BOT:"):
+            return False
+        
+        if "http://" in message.content or "https://" in message.content:
+            return False
+        
+        # Ignore messages with embeds
+        if len(message.embeds) > 0:
+            return False
+        
+        # Ignore messages that are too short
+        if len(message.content.strip()) < 5:
+            return False
+        
+        return True
+    
+    def check_message_history(self, ctx: commands.Context):
+        # Reset message history if it has been more than 5 minutes since the last message to the agent.
+        last_message = self.last_message_was.get(ctx.channel.id, datetime.min.replace(tzinfo=timezone.utc))
+
+        if datetime.now(timezone.utc) - timedelta(minutes=5) > last_message :
+            self.message_history[ctx.channel.id] = []
+        
+    async def get_message_history(self, ctx: commands.Context) -> list[ModelMessage]:
+        messages = []
+
+        if not self.message_history[ctx.channel.id]:
+            async for m in ctx.channel.history(limit=5):
+                if not self.is_valid_message(m):
+                    continue
+
+                msg = user_msg(m.content)
+                messages.append(msg)
+
+            self.message_history[ctx.channel.id] = messages
+
+            return messages
+        else:
+            messages = self.message_history[ctx.channel.id]
+            return messages
+        
+    def add_message_to_chat_history(self, ctx: commands.Context, result: AgentRunResult[Any]) -> None:
+        """
+        Add a message to the bot's message history.
+        """
+        self.message_history[ctx.channel.id].extend(result.new_messages())
+        # Limit the message history to the last 10 messages
+        if self.message_history[ctx.channel.id] and len(self.message_history[ctx.channel.id]) > 10:
+            self.message_history[ctx.channel.id] = self.message_history[ctx.channel.id][-10:]
+
     async def ask_agent(self, ctx: commands.Context):
         """
         Ask the AI agent a question.
@@ -114,11 +181,12 @@ class AIBot(commands.Bot, AgentUtilities):
         Args:
             ctx (commands.Context): the discord context.
         """
-        # Reset message history if it has been more than 5 minutes since the last agent message was added
-        if datetime.now(timezone.utc) - timedelta(minutes=5) > self.last_message_was:
-            self.message_history = []
-        self.last_message_was = datetime.now(timezone.utc)
-        
+        # Reset message history if it has been more than 5 minutes since the last message to the agent.
+        self.check_message_history(ctx)
+
+        self.last_message_was[ctx.channel.id] = datetime.now(timezone.utc)
+        self.message_history[ctx.channel.id] = await self.get_message_history(ctx)
+
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
             msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
@@ -133,12 +201,41 @@ class AIBot(commands.Bot, AgentUtilities):
 
             result = await self._agent_run(msg, AgentDependencies(bot=self, ctx=ctx, memories=memories))
             
-            self.add_message_to_chat_history(result)
+            self.add_message_to_chat_history(ctx, result)
 
             if result.output and result.output.content:
                 logger.debug(f"Agent Result: {result.output}")
                 await ctx.send(result.output.content)
             
+    
+    async def _agent_run(self, 
+                         query: str,
+                         deps: AgentDependencies, 
+                         usage_limits: UsageLimits = UsageLimits(request_limit=5),
+                         message_history: list[ModelMessage] | None = None, 
+                         ) -> AgentRunResult[Any]:
+        """
+        Run the agent with the given query and dependencies and limits.
+        """
+        async with self.agent.iter(query, 
+                                   deps=deps, 
+                                   usage_limits=usage_limits, 
+                                   model_settings=MODEL_SETTINGS, 
+                                   message_history=message_history
+                                   ) as agent_run:
+            
+            node = agent_run.next_node
+            all_nodes = [node]
+
+            while not isinstance(node, End):
+                node = await agent_run.next(node)
+                all_nodes.append(node)
+        
+        if agent_run.result is None:
+            raise ValueError("The agent run did not return a result.")
+
+        return agent_run.result
+    
     async def add_memories_task(self) -> None:
         """ Adds memories from watched channels to the bot's memory."""
         logger.debug("add_memories_task | Running memory task...")
@@ -178,43 +275,6 @@ class AIBot(commands.Bot, AgentUtilities):
 
         # reset the bot status
         await self.change_presence(activity=None, status=discord.Status.online)
-    
-    def add_message_to_chat_history(self, result: AgentRunResult[Any]) -> None:
-        """
-        Add a message to the bot's message history.
-        """
-        self.message_history.extend(result.new_messages())
-
-        # Limit the message history to the last 20 messages
-        if self.message_history and len(self.message_history) > 20:
-            self.message_history = self.message_history[-20:]
-
-    async def _agent_run(self, 
-                         query: str, 
-                         deps: AgentDependencies, 
-                         usage_limits: UsageLimits = UsageLimits(request_limit=5)
-                         ) -> AgentRunResult[Any]:
-        """
-        Run the agent with the given query and dependencies and limits.
-        """
-        async with self.agent.iter(query, 
-                                   deps=deps, 
-                                   usage_limits=usage_limits, 
-                                   model_settings=MODEL_SETTINGS, 
-                                   message_history=self.message_history
-                                   ) as agent_run:
-            
-            node = agent_run.next_node
-            all_nodes = [node]
-
-            while not isinstance(node, End):
-                node = await agent_run.next(node)
-                all_nodes.append(node)
-        
-        if agent_run.result is None:
-            raise ValueError("The agent run did not return a result.")
-
-        return agent_run.result
 
 
 async def memory_timer(bot):
@@ -243,7 +303,7 @@ async def chat(ctx, *, query: str):
 @bot.command(name="clear")
 async def clear_history(ctx):
     logging.debug(f"Clear History Command | {ctx.message.content}")
-    bot.message_history = []
+    bot.message_history[ctx.channel.id] = []
     await ctx.send("Chat history cleared.")
 
 @bot.command(name="watch")
@@ -444,3 +504,6 @@ async def search_memory(ctx: commands.Context, *, query: str):
                     await msg.remove_reaction("⬅️", ctx.author)
     except asyncio.TimeoutError:
         return
+
+def user_msg(text: str) -> ModelRequest:
+    return ModelRequest(parts=[UserPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
