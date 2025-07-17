@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import random
 from datetime import datetime
@@ -11,6 +10,7 @@ from pyurbandict import UrbanDict
 from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai import CallToolsNode
+from pydantic_ai.messages import FunctionToolCallEvent
 
 from .agents import SearchOutputType, main_agent, search_agent, summary_agent
 from .crawler import browser_cfg, run_config
@@ -118,31 +118,58 @@ async def search(query: str) -> SearchOutputType:
     logger.debug(f"Search Query: {query}")
     query = query.strip()
 
-    searches = []
+    searches: List[dict[str, str]] = []
+    search_usage_limits = UsageLimits(request_limit=15)
+
     try:
-        async with search_agent.iter(query, usage_limits=UsageLimits(request_limit=10)) as agent_run: # type: ignore
+        # try to run the search agent with the given query
+        async with search_agent.iter(query, usage_limits=search_usage_limits) as agent_run:
             node = agent_run.next_node
-            all_nodes = [node]
-
             while not isinstance(node, End):
-                if isinstance(node, CallToolsNode):
-                    text = node.model_response.parts[0] if node.model_response and node.model_response.parts else ""
-                    if text and text in searches:
-                        logger.debug(f"Duplicate search result found: {text}")
-                        continue
-                    
-                    elif text:
-                        searches.append(text)
+                if await check_duplicate_search(node, agent_run, searches):
+                    continue
+                else:
+                    node = await agent_run.next(node)
 
-                node = await agent_run.next(node)
-                all_nodes.append(node)            
-
-            return agent_run.result.output # type: ignore
-        
+            if agent_run.result:
+                return agent_run.result.output
+            else:
+                return SearchResponse(results=[])
+   
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return SearchResponse(results=[])
 
+async def check_duplicate_search(node, run, searches: List[dict[str, str]]) -> bool:
+    """
+    Checks if the tool call and the query are already in the searches list.
+    
+    Args:
+        node: The current node being processed.
+        searches (List[dict[str, str]]): The list of previous searches.
+    
+    Returns:
+        bool: True if the tool call is a duplicate, False otherwise.
+    """
+    search = {}
+    if isinstance(node, CallToolsNode):
+        # add search results/tool call to the list of searches and skip duplicate tool calls
+        async with node.stream(run.ctx) as handle_stream:
+            async for event in handle_stream:
+                # Check if the event is a tool call event, and extract the tool name
+                if isinstance(event, FunctionToolCallEvent):
+                    tool_name = event.part.tool_name
+                    text = str(node.model_response.parts[0])
+                    search = {tool_name: text}
+        
+        if search not in searches:
+            searches.append(search)
+            return False
+        else:
+            logger.debug(f"Skipping duplicate tool call: {tool_name} : {text}")
+            return True
+        
+    return False
 
 
 @search_agent.tool_plain
@@ -164,7 +191,7 @@ async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefin
             word=e.word,
             definition=e.definition,
         )
-        for e in entries[:10]
+        for e in entries[:2]
     ]
 
 

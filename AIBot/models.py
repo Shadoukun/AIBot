@@ -161,7 +161,7 @@ class CrawlerInput(JSONBaseModel):
         default=["text"], description="What to extract from each page"
     )
     domain_filter  : Optional[List[str]]        = Field(default=None, description="Only include URLs containing these domains")
-    include_summary : bool                      = Field(default=True, description="Whether to summarize page content")
+    include_summary: bool                       = Field(default=True, description="Whether to summarize page content")
     max_pages      : Optional[int]              = Field(default=10, description="Maximum number of pages to crawl")
 
 class PageSummary(JSONBaseModel):
