@@ -54,7 +54,7 @@ class AgentDependencies:
 
         self.context    = ctx
         self.channel    = ctx.channel # type: ignore
-        self.memory     = bot.memory
+        self.memory     = bot.memory_handler.memory
         self.memories   = memories
         self.message_id = str(ctx.message.id) if ctx.message else "None"
         self.bot_channel= bot.bot_channel if hasattr(bot, 'bot_channel') else None
@@ -75,9 +75,9 @@ class SearchResult(JSONBaseModel):
 
 class DictSearchResult(JSONBaseModel):
     """Model for individual dictionary results"""
-    word     : str           = Field(..., description="The word being defined.")
+    word      : str           = Field(..., description="The word being defined.")
     definition: str          = Field(..., description="The definition of the word.")
-    example  : Optional[str] = Field(None, description="An example usage of the word.")
+    example   : Optional[str] = Field(None, description="An example usage of the word.")
 
 class SearchResponse(JSONBaseModel):
     """Model for Search Agent Responses"""
