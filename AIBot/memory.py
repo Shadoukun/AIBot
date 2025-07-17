@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Dict, List
 import discord
 
 from AIBot.util import is_bot_announcement
@@ -8,7 +8,6 @@ from .asyncmemory import CustomAsyncMemory
 from .config import config, memory_config
 from .prompts import memory_prompt
 import logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -22,53 +21,67 @@ class MemoryHandler:
 
     def __init__(self, bot):
         self.bot = bot
-        self.seen_messages = []
+        self.seen_messages: List[int] = []
         self.watched_channels = set(config.get("DISCORD", {}).get("watched_channels", []))
-        
-    async def initialize_memory(self):
+
+    async def initialize_memory(self) -> None:
+        """Initialize the memory handler with the configuration."""
         self.memory = await CustomAsyncMemory.from_config(memory_config)
 
-    async def check_facts(self, messages: dict[int, list[discord.Message]]) -> dict[int, FactResponse]:
+    async def check_facts(self, messages: Dict[int, List[discord.Message]]) -> Dict[int, FactResponse]:
         """
         Check the messages for any facts that should be remembered.
+        
+        Args:
+            messages: A dictionary with channel IDs as keys and lists of messages as values.
+
+        Returns:
+            A dictionary with channel IDs as keys and FactResponse objects as values.
         """
-        parsed: dict[int, list[dict[str, str]]] = {}
+        parsed: Dict[int, List[Dict[str, str]]] = {}
         for channel_id, msgs in messages.items():
             parsed[channel_id] = []
-            logger.debug(f"check_facts | Checking {len(msgs)} for facts in channel {channel_id}")
+            logger.debug(f"check_facts | Checking {len(msgs)} messages for facts in channel {channel_id}")
             for msg in msgs:
                 # Skip bot announcements and messages with embeds
                 if len(msg.embeds) > 0:
                     continue 
-                    
-                parsed[channel_id].append(
-                    {"role": "assistant" if self.bot.user and msg.author.id == self.bot.user.id else "user",
+                
+                parsed[channel_id].append({
+                    "role": "assistant" if self.bot.user and msg.author.id == self.bot.user.id else "user",
                     "content": msg.content,
-                    "user_id": str(msg.author.id)})
+                    "user_id": str(msg.author.id)
+                })
     
         output = {}
         for c, msgs in parsed.items():
             prompt = memory_prompt(msgs)
             logger.debug(f"check_facts | Running memory agent for channel {c}")
-            res = await self.bot.memory_agent.run(prompt) 
-            if res:
-                output[c] = res.output
+            try:
+                res = await self.bot.memory_agent.run(prompt) 
+                if res:
+                    output[c] = res.output
+            except Exception as e:
+                logger.error(f"Error running memory agent for channel {c}: {e}")
 
-        if output:
-            return output
+        return output
 
-        return {}
-
-    async def add_memories(self, messages: dict[int, list[discord.Message]]) -> list[dict[str, Any]]:
+    async def add_memories(self, messages: Dict[int, List[discord.Message]]) -> List[Dict[str, Any]]:
         """
         Adds messages to the bot's memories and returns the results.
+
+        Args:
+            messages: A dictionary with channel IDs as keys and lists of messages as values.
+
+        Returns:
+            A list of dictionaries containing the results of the memory addition.
         """
-        # checks each channels messages for facts, returns a {channel_id: FactResponse}
-        fact_res: dict[int, FactResponse] = await self.check_facts(messages)
+        fact_res: Dict[int, FactResponse] = await self.check_facts(messages)
         if not fact_res:
             logger.debug("No facts found in watched messages.")
             return []
 
+        results = []
         for channel_id, facts in fact_res.items():
             if not facts.facts:
                 logger.debug(f"No facts to add for channel {channel_id}.")
@@ -76,42 +89,53 @@ class MemoryHandler:
             
             logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
             try:
-                if facts := [{"role": "user",
-                              "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
-                              "topic": f.topic if hasattr(f, 'topic') else ""} for f in facts.facts]:
+                formatted_facts = [
+                    {
+                        "role": "user",
+                        "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
+                        "topic": f.topic if hasattr(f, 'topic') else ""
+                    } for f in facts.facts
+                ]
 
-                    res = await self.memory.add(facts, agent_id=str(self.bot.user.id) if self.bot.user and self.bot.user.id else "", infer=False)
+                res = await self.memory.add(
+                    formatted_facts,
+                    agent_id=str(self.bot.user.id) if self.bot.user and self.bot.user.id else "",
+                    infer=False
+                )
 
-                    return res.get("results", []) # type: ignore
+                results.extend(res.get("results", []))  # type: ignore
             except Exception as e:
                 logger.error(f"Error adding memories for channel {channel_id}: {e}")
-                continue
-            
-        return []
-    
+
+        return results
+
     async def add_memories_task(self) -> None:
-        """ Adds memories from watched channels to the bot's memory."""
+        """
+        Adds memories from watched channels to the bot's memory.
+        """
         logger.debug("add_memories_task | Running memory task...")
 
         watched_msgs = await self.check_watched_channels()
         if not watched_msgs:
-            logger.debug("add_memories_task |No new messages found for memory check.")
+            logger.debug("add_memories_task | No new messages found for memory check.")
             return
         
-        # add the IDs of the messages to the seen_messages list
-        for _, msgs in watched_msgs.items():
-            for msg in msgs:
-                self.seen_messages.append(msg.id)
-       
-        # Change bot status to busy
-        await self.bot.change_presence(activity=discord.Game(name="Updating Memory..."), status=discord.Status.dnd)
+        # Add the IDs of the messages to the seen_messages list
+        self.seen_messages.extend(msg.id for _, msgs in watched_msgs.items() for msg in msgs)
 
-        # add memories
+        # Change bot status to busy
+        await self.bot.change_presence(
+            activity=discord.Game(name="Updating Memory..."),
+            status=discord.Status.dnd
+        )
+
+        # Add memories
         if res := await self.add_memories(watched_msgs):
             added = [
                 f"**{r['event']} |** "
                 + (f"{prev_m} **->**\n{r['memory']}" if (prev_m := r.get('previous_memory')) and prev_m != r['memory'] else r['memory'])
-                for r in res]
+                for r in res
+            ]
 
             chunks = [added[i:i + 5] for i in range(0, len(added), 5)]
             for chunk in chunks:
@@ -124,27 +148,28 @@ class MemoryHandler:
                 if self.bot.bot_channel and isinstance(self.bot.bot_channel, discord.TextChannel):
                     await self.bot.bot_channel.send(embed=embed)
 
-        # reset the bot status
+        # Reset the bot status
         await self.bot.change_presence(activity=None, status=discord.Status.online)
 
-    async def check_watched_channels(self) -> dict[int, list[discord.Message]]:
+    async def check_watched_channels(self) -> Dict[int, List[discord.Message]]:
         """
         Check the watched channels for new messages.
-        Returns a dictionary with channel IDs as keys and lists of messages as values.
-        """
 
+        Returns:
+            A dictionary with channel IDs as keys and lists of messages as values.
+        """
         logger.debug("Checking watched channels for new messages...")
     
         after = datetime.now(timezone.utc) - timedelta(minutes=5)
-        watched_msgs: dict[int, list[discord.Message]] = {}
+        watched_msgs: Dict[int, List[discord.Message]] = {}
         for c in self.watched_channels:
-            channel: discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread | None = self.bot.get_channel(c)
+            channel = self.bot.get_channel(c)
             if isinstance(channel, discord.TextChannel):
                 watched_msgs[c] = [
                     m async for m in channel.history(after=after)
                     if not m.content.startswith(str(self.bot.command_prefix))
                     and not is_bot_announcement(m)
-                    and m.id not in self.seen_messages # type: ignore
+                    and m.id not in self.seen_messages  # type: ignore
                     and len(m.embeds) == 0  # Exclude messages with embeds
                 ]
 

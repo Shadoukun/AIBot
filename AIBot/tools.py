@@ -110,7 +110,7 @@ async def search(query: str) -> SearchOutputType:
         query (str): The search query string.
 
     Returns:
-        str: The search results as a string. (at the moment)
+        str: The search results as a string. # at the moment
 
     Raises:
         Exception: If an error occurs during the search process.
