@@ -2,10 +2,9 @@ import asyncio
 import io
 import logging
 import random
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlparse
+import html
 
 import discord
 import matplotlib.pyplot as plt
@@ -62,9 +61,9 @@ class AIBot(commands.Bot):
         self.memory_handler = await MemoryHandler.create(self)
 
         async def memory_timer(bot):
-            """ Regularly check for new messages to add to memory every 5 minutes."""
+            """ Regularly check for new messages to add to memory every 10 minutes."""
             while True:
-                await asyncio.sleep(5 * 60)  # Wait for 5 minutes
+                await asyncio.sleep(10 * 60)  # Wait for 10 minutes
                 await bot.memory_handler.add_memories_task()
 
         async def seen_messages_timer(bot):
@@ -89,24 +88,17 @@ class AIBot(commands.Bot):
         
         ctx = await self.get_context(message)
 
-        # for now ignore messages with URLs
-        if "http://" in message.content or "https://" in message.content:
-            urls = re.findall(r'https?://[^\s]+', message.content)
-            for url in urls:
-                parsed_url = urlparse(url)
-                if parsed_url.netloc in self.watched_domains:
-                    logger.debug(f"on_message | Ignoring message with URL: {url}")
-            
-            return
-
+        # bot mentioned
         if self.user and self.user.mentioned_in(message):
             logger.debug(f"on_message | Bot Mentioned | {message.content}")
             await self.ask_agent(ctx)
 
+        # bot command
         elif message.content.startswith(self.command_prefix):
             logger.debug(f"on_message | Bot Command | {message.content}")
             await self.process_commands(message)
 
+        # random event
         elif random.random() < 0.05:
             logger.debug("on_message | Random Event")
 
@@ -127,7 +119,7 @@ class AIBot(commands.Bot):
                     await ctx.send(res.output.content)
         
         # Add the message to the message history
-        if self.active_conversation(ctx.channel.id):
+        if self.active_conversation(ctx.channel.id) and self.is_valid_message(message):
             self.message_history[ctx.channel.id].append(sys_msg(message.content))
     
     @staticmethod
@@ -244,8 +236,7 @@ class AIBot(commands.Bot):
             
             self.add_message_to_chat_history(ctx, result)
 
-            if result.output:
-                await ctx.send(result.output.response)
+            await ctx.send(html.unescape(result.output.response))
 
     async def _agent_run(self, 
                          query: str,
