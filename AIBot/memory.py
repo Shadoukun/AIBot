@@ -125,9 +125,7 @@ class MemoryHandler:
 
         # Change bot status to busy
         await self.bot.change_presence(
-            activity=discord.Game(name="Updating Memory..."),
-            status=discord.Status.dnd
-        )
+            activity=discord.Game(name="Updating Memory..."), status=discord.Status.dnd)
 
         # Add memories
         if res := await self.add_memories(watched_msgs):
