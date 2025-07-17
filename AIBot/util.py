@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
 import discord
 import logging
 from typing import Callable
+from pydantic_ai.messages import ModelRequest, UserPromptPart, SystemPromptPart
 
 logger = logging.getLogger(__name__)
 
@@ -29,3 +31,9 @@ async def is_admin(ctx, *args, **kwargs) -> Callable:
             await ctx.send("You do not have permission to use this command.")
         return wrapper
     return decorator
+
+def user_msg(text: str) -> ModelRequest:
+    return ModelRequest(parts=[UserPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
+
+def sys_msg(text: str) -> ModelRequest:
+    return ModelRequest(parts=[SystemPromptPart(content=text, timestamp=datetime.now(timezone.utc))])

@@ -24,10 +24,21 @@ class MemoryHandler:
         self.seen_messages: List[int] = []
         self.watched_channels = set(config.get("DISCORD", {}).get("watched_channels", []))
 
-    async def initialize_memory(self) -> None:
-        """Initialize the memory handler with the configuration."""
-        self.memory = await CustomAsyncMemory.from_config(memory_config)
+    @classmethod
+    async def create(cls, bot) -> 'MemoryHandler':
+        """
+        Initialize the MemoryHandler with the bot instance.
+        
+        Args:
+            bot: The bot instance to use for memory operations.
 
+        Returns:
+            An instance of MemoryHandler.
+        """
+        handler = cls(bot)
+        handler.memory = await CustomAsyncMemory.from_config(memory_config)
+        return handler
+    
     async def check_facts(self, messages: Dict[int, List[discord.Message]]) -> Dict[int, FactResponse]:
         """
         Check the messages for any facts that should be remembered.

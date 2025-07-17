@@ -1,4 +1,3 @@
-import os
 import logging
 from typing import Union
 from pydantic_ai import Agent

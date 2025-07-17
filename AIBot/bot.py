@@ -15,16 +15,14 @@ import umap
 from discord.ext import commands
 from discord.utils import escape_mentions
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart, SystemPromptPart
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import UsageLimits
 
-
 from .agents import main_agent, memory_agent, true_false_agent
-from .config import config, write_config, memory_config
-from .asyncmemory import CustomAsyncMemory
+from .config import config, write_config
 from .models import AgentDependencies, FollowUpQuestion
 from .prompts import random_message_prompt
-from .util import is_admin, remove_command_prefix
+from .util import is_admin, remove_command_prefix, user_msg, sys_msg
 
 # import all the tools after the agents are defined
 from . import tools  # noqa: F401
@@ -48,8 +46,6 @@ class AIBot(commands.Bot):
         self.memory_checked_at = datetime.now(timezone.utc)
         self.last_message_was:   dict[int, datetime] = {}
 
-        self.memory_handler = MemoryHandler(self)
-    
     def active_conversation(self, channel_id: int) -> bool:
         """
         Check if there is an active conversation in the given channel.
@@ -57,12 +53,13 @@ class AIBot(commands.Bot):
         if not self.message_history.get(channel_id):
             return False
         
+        # Check if the last message was within the last 2 minutes
         last_time = self.last_message_was.get(channel_id, datetime.min.replace(tzinfo=timezone.utc))
-        return (datetime.now(timezone.utc) - last_time) < timedelta(minutes=5)
+        return (datetime.now(timezone.utc) - last_time) < timedelta(minutes=2)
     
     async def setup_hook(self):
-        self.memory = await CustomAsyncMemory.from_config(memory_config)
-        await self.memory_handler.initialize_memory()
+        # Initialize the memory handler
+        self.memory_handler = await MemoryHandler.create(self)
 
         async def memory_timer(bot):
             """ Regularly check for new messages to add to memory every 5 minutes."""
@@ -148,7 +145,9 @@ class AIBot(commands.Bot):
         """
         Check if the message is valid for processing.
         """
-        if message.content.startswith(str(self.command_prefix)) and not message.content.startswith(f"{self.command_prefix}chat"):
+        # ignore commands that aren't the chat command
+        if message.content.startswith(str(self.command_prefix)) and \
+            not message.content.startswith(f"{self.command_prefix}chat"):
             return False
         if message.content.startswith("BOT:"):
             return False
@@ -164,7 +163,7 @@ class AIBot(commands.Bot):
         if len(message.embeds) > 0:
             return False
         
-        # Ignore messages that are too short
+        # Ignore messages that are too short (lol, etc)
         if len(message.content.strip()) < 5:
             return False
         
@@ -236,7 +235,7 @@ class AIBot(commands.Bot):
             msg = escape_mentions(msg)
         
             memories = []
-            memory_results = await self.memory.search(query=msg, agent_id=user_id, limit=8)
+            memory_results = await self.memory_handler.memory.search(query=msg, agent_id=user_id, limit=8)
             for entry in memory_results["results"]:
                 if entry and "memory" in entry:
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
@@ -272,9 +271,9 @@ class AIBot(commands.Bot):
                     try:
                         logger.debug("Waiting for user response to follow-up question...")
                         response = await self.wait_for('message', timeout=60.0, check=lambda m: m.author == deps.context.author) # type: ignore
-                        query = response.content
-                        self.message_history[deps.channel.id].append(agent_run.new_messages()[0])  # Add the follow-up question to the history # type: ignore
-                        self.message_history[deps.channel.id].append(user_msg(query))  # Add the user's response to the history # type: ignore
+                        # append the follow up question and the user's response to the message history
+                        self.message_history[deps.channel.id].append(agent_run.new_messages()[0]) # type: ignore
+                        self.message_history[deps.channel.id].append(user_msg(response.content)) # type: ignore
                         continue
                     except asyncio.TimeoutError:
                         logger.debug("No response received for clarification question.")
@@ -338,8 +337,8 @@ async def memories(ctx: commands.Context):
     """
     logging.debug(f"Memories Command | {ctx.message.content}")
 
-    if bot.memory.vector_store.client:
-        client = bot.memory.vector_store.client
+    if bot.memory_handler.memory.vector_store.client:
+        client = bot.memory_handler.memory.vector_store.client
         collection = client.get_collection(name="memory")
 
     # 2. Get all embeddings and associated metadata
@@ -414,7 +413,7 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
         memory_content (str): The content of the memory to delete.
     """
 
-    memory = await bot.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
+    memory = await bot.memory_handler.memory.search(query=memory_content, agent_id=str(bot.user.id if bot.user else ""), limit=1)
     if memory and memory["results"]:
         if memory_content != memory["results"][0].get("memory", ""):
             return await ctx.send("No matching memory found.")
@@ -436,7 +435,7 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
         try:
             reaction, _ = await bot.wait_for("reaction_add", timeout=60.0, check=check)
             if str(reaction.emoji) == "✅":
-                await bot.memory.delete(mem_entry["id"])
+                await bot.memory_handler.memory.delete(mem_entry["id"])
                 embed = discord.Embed(
                     title="Memory Deleted",
                     description=f"DELETE | {mem_entry['memory']}",
@@ -458,7 +457,7 @@ async def search_memory(ctx: commands.Context, *, query: str):
     """
     Query the bot's memory for a specific term.
     """
-    memory = await bot.memory.search(query=query, agent_id=str(bot.user.id if bot.user else ""), limit=20)
+    memory = await bot.memory_handler.memory.search(query=query, agent_id=str(bot.user.id if bot.user else ""), limit=20)
     if memory and memory["results"]:
         chunks = [memory["results"][i:i + 5] for i in range(0, len(memory["results"]), 5)]
         current_chunk = 0
@@ -499,8 +498,3 @@ async def search_memory(ctx: commands.Context, *, query: str):
     except asyncio.TimeoutError:
         return
 
-def user_msg(text: str) -> ModelRequest:
-    return ModelRequest(parts=[UserPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
-
-def sys_msg(text: str) -> ModelRequest:
-    return ModelRequest(parts=[SystemPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
