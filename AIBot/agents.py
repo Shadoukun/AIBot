@@ -28,9 +28,11 @@ BASE_URL = config.get("BASE_URL", "http://localhost:11434/v1")
 # Agent models
 
 local_model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
+
+openrouter_config = config.get("openrouter", {})
 openrouter_model = OpenAIModel(
-            'google/gemini-2.5-flash',
-            provider=OpenRouterProvider(api_key=config.get("OPENROUTER_API_KEY", "")),
+            model_name=openrouter_config.get("model", "google/gemini-2.5-flash"),
+            provider=OpenRouterProvider(api_key=openrouter_config.get("api_key", "")),
         )
 
 # Agents

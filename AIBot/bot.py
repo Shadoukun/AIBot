@@ -114,9 +114,11 @@ class AIBot(commands.Bot, AgentUtilities):
                 if res.output and res.output.content:
                     logger.debug(f"on_message | Random Event Result: {res.output.content}")
                     await ctx.send(res.output.content)
-
+        
+        # Add the message to the message history
         if self.active_conversation(ctx.channel.id):
             self.message_history[ctx.channel.id].append(user_msg(message.content))
+            
     
     def is_valid_message(self, message: discord.Message) -> bool:
         """
@@ -183,7 +185,6 @@ class AIBot(commands.Bot, AgentUtilities):
         """
         # Reset message history if it has been more than 5 minutes since the last message to the agent.
         self.check_message_history(ctx)
-
         self.last_message_was[ctx.channel.id] = datetime.now(timezone.utc)
         self.message_history[ctx.channel.id] = await self.get_message_history(ctx)
 
