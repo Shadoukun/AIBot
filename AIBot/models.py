@@ -1,6 +1,6 @@
-from typing      import List, Optional, Literal
-from pydantic    import BaseModel, Field, PositiveInt, ValidationError
-from mem0        import AsyncMemory
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, PositiveInt, ValidationError
+from mem0 import AsyncMemory
 from discord.ext import commands
 from discord.abc import GuildChannel
 import json
