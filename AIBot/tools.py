@@ -116,7 +116,7 @@ async def search(query: str) -> str:
     logger.debug(f"Search Query: {query}")
     query = query.strip()
     try:
-        agent_run = await search_agent.run(query, usage_limits=UsageLimits(request_limit=2))
+        agent_run = await search_agent.run(query, usage_limits=UsageLimits(request_limit=10))
         if agent_run and agent_run.output:
             return str(agent_run.output)
         else:

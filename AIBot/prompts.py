@@ -31,9 +31,23 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     prompt_str = ""
 
     # Define the system's purpose and behavior
-    prompt["system"] = (
-        "You are an AI assistant in a Discord server. Your primary goal is to answer user questions and interact with users. "
-    )
+    prompt["system"] = {
+        "description": (
+            "You are an AI assistant in a Discord server. Your primary goal is to answer user questions and interact with users. "
+            "You can ask for clarification if needed, and you can use tools to assist with your responses."
+        ),
+        "example": {
+            '''Example:
+
+            User: When did the olympics take place?
+
+            return:
+                FollowUpQuestion(
+                    "question": "Which olympics are you referring to?",
+                )
+            '''
+        }
+    }
     prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
 
     # Define the tone and communication style
@@ -43,7 +57,7 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     prompt_str += format_prompt.format_as_xml(prompt["tone"], item_tag="rule", root_tag="tone")
 
     # Define formatting rules
-    prompt["rules"] = ("Avoid using emojis, markdown, or any other formatting.")
+    prompt["rules"] = ("Never use emojis, markdown, or any other formatting.")
     prompt_str += format_prompt.format_as_xml(prompt["rules"], item_tag="rule", root_tag="rules")
 
     # Define safety and ethical guidelines

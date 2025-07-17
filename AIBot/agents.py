@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Union
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -9,7 +10,9 @@ from pydantic_ai.common_tools.tavily import tavily_search_tool
 from .config import config
 from .models import (
     AgentDependencies,
+    BasicResponse,
     BoolResponse,
+    FollowUpQuestion,
     FactResponse,
     SearchResponse,
 )
@@ -37,19 +40,23 @@ openrouter_model = OpenAIModel(
 
 # Agents
 
+OutputType = Union[FollowUpQuestion, BasicResponse]
+
 # Main agent used for supervising the other agents
-main_agent = Agent[AgentDependencies, str](
+main_agent = Agent(
             model=local_model,
             instructions=[default_system_prompt],
-            deps_type=AgentDependencies, 
+            deps_type=AgentDependencies,
+            output_type=OutputType, # type: ignore
         )
 
+SearchOutputType = Union[FollowUpQuestion, SearchResponse]
+
 # Search agent for handling search queries
-search_agent = Agent[None, SearchResponse](
+search_agent = Agent[None, SearchOutputType](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
             tools=[tavily_search_tool(config.get("TAVILY_API_KEY"))], # type: ignore
-            output_type=SearchResponse,
         )
 
 # Memory agent for handling fact retrieval and memory updates

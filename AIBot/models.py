@@ -53,6 +53,24 @@ class AgentDependencies:
         self.message_id = str(ctx.message.id) if ctx.message else "None"
         self.bot_channel = bot.bot_channel if hasattr(bot, 'bot_channel') else None
 
+class BasicResponse(BaseModel):
+    """Base model for responses from agents"""
+    response: str = Field(..., description="The response content from the agent.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the BasicResponse."""
+        return json.dumps({"response": self.response})
+    
+class FollowUpQuestion(BaseModel):
+    """Model for follow-up questions"""
+    question: str = Field(..., description="The question to ask the user.")
+
+    def __str__(self) -> str:
+        """Return a string representation of the FollowUpQuestion."""
+        return json.dumps({
+            "question": self.question,
+        })
+
 class SearchResult(BaseModel):
     """Model for individual search results"""
     title: str = Field(..., description="The title of the search result.")

@@ -15,14 +15,14 @@ import umap
 from discord.ext import commands
 from discord.utils import escape_mentions
 from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart, SystemPromptPart
 from pydantic_ai.usage import UsageLimits
 
 
 from .agents import main_agent, memory_agent, true_false_agent
 from .config import config, write_config, memory_config
 from .asyncmemory import CustomAsyncMemory
-from .models import AgentDependencies
+from .models import AgentDependencies, FollowUpQuestion
 from .prompts import random_message_prompt
 from .util import is_admin, remove_command_prefix
 
@@ -131,7 +131,7 @@ class AIBot(commands.Bot):
         
         # Add the message to the message history
         if self.active_conversation(ctx.channel.id):
-            self.message_history[ctx.channel.id].append(user_msg(message.content))
+            self.message_history[ctx.channel.id].append(sys_msg(message.content))
     
     @staticmethod
     def update_message_history(history: list[str], new: list[str], max_length: int = 20) -> list[str]:
@@ -182,7 +182,7 @@ class AIBot(commands.Bot):
                 if not self.is_valid_message(m):
                     continue
 
-                msg = user_msg(m.content)
+                msg = sys_msg(m.content)
                 messages.append(msg)
 
             self.message_history[ctx.channel.id] = messages
@@ -229,8 +229,7 @@ class AIBot(commands.Bot):
             self.add_message_to_chat_history(ctx, result)
 
             if result.output:
-                logger.debug(f"Agent Result: {result.output}")
-                await ctx.send(result.output)
+                await ctx.send(result.output.response)
 
     async def _agent_run(self, 
                          query: str,
@@ -239,11 +238,30 @@ class AIBot(commands.Bot):
         """
         Run the agent with the given query and dependencies and limits.
         """
-        agent_run = await self.agent.run(query, deps=deps, 
-                                   usage_limits=UsageLimits(request_limit=3), 
+        while True:
+            logger.debug(f"Running agent with query: {query}")
+            agent_run = await self.agent.run(query, deps=deps, 
+                                   usage_limits=UsageLimits(request_limit=5), 
                                    model_settings=MODEL_SETTINGS, 
                                    message_history=self.message_history[deps.channel.id] if deps.channel else None
                                    )
+            
+            if agent_run and agent_run.output:
+                if isinstance(agent_run.output, FollowUpQuestion):
+                    logger.debug(f"Follow-Up Question: {agent_run.output.question}")
+                    # Ask the user a follow-up question
+                    await deps.context.channel.send(agent_run.output.question) # type: ignore
+                    # Wait for the user's response
+                    try:
+                        logger.debug("Waiting for user response to follow-up question...")
+                        response = await self.wait_for('message', timeout=60.0, check=lambda m: m.author == deps.context.author) # type: ignore
+                        query = response.content
+                        continue  # Retry with the new query
+                    except asyncio.TimeoutError:
+                        logger.debug("No response received for clarification question.")
+                        return agent_run
+                else:
+                    break
         
         return agent_run
     
@@ -465,3 +483,6 @@ async def search_memory(ctx: commands.Context, *, query: str):
 
 def user_msg(text: str) -> ModelRequest:
     return ModelRequest(parts=[UserPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
+
+def sys_msg(text: str) -> ModelRequest:
+    return ModelRequest(parts=[SystemPromptPart(content=text, timestamp=datetime.now(timezone.utc))])
