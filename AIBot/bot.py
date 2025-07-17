@@ -256,13 +256,14 @@ class AIBot(commands.Bot):
                         logger.debug("Waiting for user response to follow-up question...")
                         response = await self.wait_for('message', timeout=60.0, check=lambda m: m.author == deps.context.author) # type: ignore
                         query = response.content
-                        continue  # Retry with the new query
+                        self.message_history[deps.channel.id].append(agent_run.new_messages()[0])  # Add the follow-up question to the history # type: ignore
+                        self.message_history[deps.channel.id].append(user_msg(query))  # Add the user's response to the history # type: ignore
+                        continue
                     except asyncio.TimeoutError:
                         logger.debug("No response received for clarification question.")
                         return agent_run
                 else:
                     break
-        
         return agent_run
     
 

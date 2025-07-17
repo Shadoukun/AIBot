@@ -10,8 +10,9 @@ from crawl4ai import AsyncWebCrawler
 from pyurbandict import UrbanDict
 from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
+from pydantic_ai import CallToolsNode
 
-from .agents import main_agent, search_agent, summary_agent
+from .agents import SearchOutputType, main_agent, search_agent, summary_agent
 from .crawler import browser_cfg, run_config
 from .models import (
     AgentDependencies,
@@ -22,6 +23,7 @@ from .models import (
     PageSummary,
     RandomNumberInput,
     RandomNumberResponse,
+    SearchResponse,
     UrbanDefinition,
     User,
     WikiCrawlRequest,
@@ -100,7 +102,7 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
 
 
 @main_agent.tool_plain(retries=1)
-async def search(query: str) -> str:
+async def search(query: str) -> SearchOutputType:
     """
     Performs a search online for the given query using the search agent.
 
@@ -115,16 +117,32 @@ async def search(query: str) -> str:
     """
     logger.debug(f"Search Query: {query}")
     query = query.strip()
+
+    searches = []
     try:
-        agent_run = await search_agent.run(query, usage_limits=UsageLimits(request_limit=10))
-        if agent_run and agent_run.output:
-            return str(agent_run.output)
-        else:
-            return "No results found."
+        async with search_agent.iter(query, usage_limits=UsageLimits(request_limit=10)) as agent_run: # type: ignore
+            node = agent_run.next_node
+            all_nodes = [node]
+
+            while not isinstance(node, End):
+                if isinstance(node, CallToolsNode):
+                    text = node.model_response.parts[0] if node.model_response and node.model_response.parts else ""
+                    if text and text in searches:
+                        logger.debug(f"Duplicate search result found: {text}")
+                        continue
+                    
+                    elif text:
+                        searches.append(text)
+
+                node = await agent_run.next(node)
+                all_nodes.append(node)            
+
+            return agent_run.result.output # type: ignore
         
-        
-    except Exception:
-        return "Error during search."
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        return SearchResponse(results=[])
+
 
 
 @search_agent.tool_plain
