@@ -32,6 +32,7 @@ class AgentDependencies:
     memory     : Optional[AsyncMemory] = None
     memories   : Optional[list[str]] = None
     bot_channel: Optional[GuildChannel] = None
+    searches   : List[dict[str, str]] = []
 
     def __init__(self, bot, ctx: commands.Context, memories: Optional[list[str]] = None):
         self.agent = User(

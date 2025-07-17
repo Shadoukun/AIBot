@@ -37,7 +37,7 @@ memory_config = {
         "provider": "ollama",
         "config": {
             "model": MODEL_NAME,
-            "temperature": 0.6,
+            "temperature": 0.8,
             "max_tokens": 2000,
             "ollama_base_url": "http://localhost:11434",
         },

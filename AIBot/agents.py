@@ -29,7 +29,7 @@ BASE_URL = config.get("BASE_URL", "http://localhost:11434/v1")
 
 # Agent models
 
-local_model = OpenAIModel(model_name=MODEL_NAME,provider=OpenAIProvider(base_url=BASE_URL))
+local_model = OpenAIModel(model_name=MODEL_NAME, provider=OpenAIProvider(base_url=BASE_URL))
 
 openrouter_config = config.get("openrouter", {})
 openrouter_model = OpenAIModel(

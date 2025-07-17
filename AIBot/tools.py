@@ -101,8 +101,8 @@ async def random_number(rand: RandomNumberInput) -> RandomNumberResponse:
     return RandomNumberResponse(number=number)
 
 
-@main_agent.tool_plain(retries=1)
-async def search(query: str) -> SearchOutputType:
+@main_agent.tool(retries=1)
+async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutputType:
     """
     Performs a search online for the given query using the search agent.
 
@@ -116,17 +116,23 @@ async def search(query: str) -> SearchOutputType:
         Exception: If an error occurs during the search process.
     """
     logger.debug(f"Search Query: {query}")
-    query = query.strip()
 
+    # keep the main agent from running the same search multiple times
+    search = {ctx.deps.channel.id: query} # type: ignore
+    if search in ctx.deps.searches:
+        logger.debug(f"Skipping duplicate search: {search}")
+        return SearchResponse(results=[])
+    ctx.deps.searches.append(search) # type: ignore
+    
     searches: List[dict[str, str]] = []
-    search_usage_limits = UsageLimits(request_limit=15)
-
+    search_usage_limits = UsageLimits(request_limit=20, response_tokens_limit=5000)
     try:
         # try to run the search agent with the given query
         async with search_agent.iter(query, usage_limits=search_usage_limits) as agent_run:
             node = agent_run.next_node
             while not isinstance(node, End):
-                if await check_duplicate_search(node, agent_run, searches):
+                # keep the search agent from using the same tools multiple times
+                if await check_duplicate_search_tool(node, agent_run, searches):
                     continue
                 else:
                     node = await agent_run.next(node)
@@ -140,7 +146,7 @@ async def search(query: str) -> SearchOutputType:
         logger.error(f"Search failed: {e}")
         return SearchResponse(results=[])
 
-async def check_duplicate_search(node, run, searches: List[dict[str, str]]) -> bool:
+async def check_duplicate_search_tool(node, run, searches: List[dict[str, str]]) -> bool:
     """
     Checks if the tool call and the query are already in the searches list.
     
