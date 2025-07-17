@@ -5,6 +5,12 @@ from discord.ext import commands
 from discord.abc import GuildChannel
 import json
 
+class JSONBaseModel(BaseModel):
+    """Base model that provides a JSON string representation."""
+    def __str__(self) -> str:
+        """Return a JSON string representation of the model."""
+        return json.dumps(self.model_dump_json(), indent=4)
+
 class User(BaseModel):
     """Model for user information"""
     id: str = Field(..., description="The unique identifier of the user.")
@@ -53,84 +59,44 @@ class AgentDependencies:
         self.message_id = str(ctx.message.id) if ctx.message else "None"
         self.bot_channel = bot.bot_channel if hasattr(bot, 'bot_channel') else None
 
-class BasicResponse(BaseModel):
+class BasicResponse(JSONBaseModel):
     """Base model for responses from agents"""
     response: str = Field(..., description="The response content from the agent.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the BasicResponse."""
-        return json.dumps({"response": self.response})
-    
-class FollowUpQuestion(BaseModel):
+class FollowUpQuestion(JSONBaseModel):
     """Model for follow-up questions"""
     question: str = Field(..., description="The question to ask the user.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the FollowUpQuestion."""
-        return json.dumps({
-            "question": self.question,
-        })
-
-class SearchResult(BaseModel):
+class SearchResult(JSONBaseModel):
     """Model for individual search results"""
     title: str = Field(..., description="The title of the search result.")
     url: str = Field(..., description="The URL of the search result.")
     summary: str = Field(..., description="A brief snippet or summary of the search result.")
 
-    def __str__(self) -> str:
-        return json.dumps({
-            "title": self.title,
-            "url": self.url,
-            "summary": self.summary,
-        })
-
-class DictSearchResult(BaseModel):
+class DictSearchResult(JSONBaseModel):
     """Model for individual dictionary results"""
     word: str = Field(..., description="The word being defined.")
     definition: str = Field(..., description="The definition of the word.")
     example: Optional[str] = Field(None, description="An example usage of the word.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the DictResult."""
-        return json.dumps({
-            "word": self.word,
-            "definition": self.definition,
-            "example": self.example
-        })
-    
-class SearchResponse(BaseModel):
+class SearchResponse(JSONBaseModel):
     """Model for Search Agent Responses"""
     results: list[SearchResult | DictSearchResult] = Field(default_factory=list, description="A list of search results.")
 
-    def __str__(self) -> str:
-        """Return a JSON string representation of the SearchResponse."""
-        return json.dumps({"results": [result.model_dump_json() for result in self.results]})
-    
-class Fact(BaseModel):
+class Fact(JSONBaseModel):
     """Model for individual facts extracted from text"""
     topic: str = Field(..., description="The topic or subject of the fact. one or two keywords")
     content: str = Field(..., description="The content of the fact.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the Fact."""
-        return json.dumps({
-            "topic": self.topic,
-            "content": self.content,
-        })
-
-class FactResponse(BaseModel):
+class FactResponse(JSONBaseModel):
     """Model for Fact Agent Responses"""
     facts: list[Fact] = Field(default_factory=list, description="A list of facts extracted from the input text.")
 
-    def __str__(self) -> str:
-        """Return a JSON string representation of the FactResponse."""
-        return json.dumps({"facts": [fact.model_dump_json() for fact in self.facts]})
-
-class BoolResponse(BaseModel):
+class BoolResponse(JSONBaseModel):
     """Model for True/False Agent Responses"""
     result: bool = Field(..., description="a single boolean True or False response.")
 
-class RandomNumberInput(BaseModel):
+class RandomNumberInput(JSONBaseModel):
     """Model for input to generate a random number"""
     start: PositiveInt = Field(1, description="The starting range for the random number (inclusive).")
     limit: PositiveInt = Field(100, description="The upper limit for the random number (inclusive).")
@@ -142,67 +108,52 @@ class RandomNumberInput(BaseModel):
             raise ValidationError("Start must be less than or equal to limit.")
         return value
 
-class RandomNumberResponse(BaseModel):
+class RandomNumberResponse(JSONBaseModel):
     """Model for Random Number Responses"""
     number: PositiveInt = Field(..., description="The generated random number.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the RandomNumberResponse."""
-        return json.dumps({
-            "number": self.number
-        })
-    
-class DateTimeResponse(BaseModel):
+class DateTimeResponse(JSONBaseModel):
     """Model for Date and Time Responses"""
     date: str = Field(..., description="The current date in the format 'MM/DD/YYYY'.")
     time: str = Field(..., description="The current time in the format 'HH:MM:SS'.")
 
-    def __str__(self) -> str:
-        """Return a string representation of the DateResponse."""
-        return json.dumps({
-            "date": self.date,
-            "time": self.time
-        })
-    
-class WikipediaSearchResult(BaseModel):
+class WikipediaSearchResult(JSONBaseModel):
     """Model for individual Wikipedia search results"""
-    title: str
-    summary: str
+    title: str = Field(..., description="The title of the Wikipedia page.")
+    summary: str = Field(..., description="A brief summary of the Wikipedia page.")
 
-class LookupUrbanDictRequest(BaseModel):
+class LookupUrbanDictRequest(JSONBaseModel):
     """Model for requests to look up a term in Urban Dictionary"""
     term: str = Field(..., description="Word or phrase to define (case-insensitive)")
 
-class UrbanDefinition(BaseModel):
+class UrbanDefinition(JSONBaseModel):
     """Model for individual Urban Dictionary definitions"""
     word: str
     definition: str
 
-class WikiCrawlRequest(BaseModel):
+class WikiCrawlRequest(JSONBaseModel):
     """Model for requests to crawl Wikipedia pages"""
-    query: str = Field(..., description="A page title or a search phrase. If ambiguous, "
-                                          "the first result is used unless `exact=True`."
-    )
-
+    query: str = Field(..., description="A page title or a search phrase. If ambiguous, the first result is used unless `exact=True`.")
     depth: PositiveInt = Field(1, description="How many link-levels deep to crawl. 1 = just the page itself.")
-    max_pages: PositiveInt = Field(10, description="Hard cap on total pages visited (safety valve).")
+    max_pages: PositiveInt = Field(5, description="Hard cap on total pages visited (safety valve).")
     exact: bool = Field(False, description="If True, treat `query` as an exact page title; otherwise use Wikipedia search.")
-    intro_only: bool = Field(True, description="Return only the summary/introduction instead of full content.")
+    intro_only: bool = Field(False, description="Return only the summary/introduction instead of full content.")
 
-class WikiPage(BaseModel):
+class WikiPage(JSONBaseModel):
     """Model for individual Wikipedia pages"""
-    title: str
-    url: str
-    summary: str
-    links: List[str]
+    title: str = Field(..., description="The title of the Wikipedia page.")
+    content: str = Field(..., description="The main content of the Wikipedia page.")
+    url: str = Field(..., description="The URL of the Wikipedia page.")
+    summary: str = Field(..., description="A brief summary of the Wikipedia page.")
+    links: List[str] = Field(default_factory=list, description="A list of links found on the Wikipedia page.")
 
-class WikiCrawlResponse(BaseModel):
+class WikiCrawlResponse(JSONBaseModel):
     """Model for responses from crawling Wikipedia pages"""
-    pages: List[WikiPage]
-    visited: int
-    depth_reached: int
+    pages: List[WikiPage] = Field(default_factory=list, description="A list of crawled Wikipedia pages.")
+    visited: int = Field(..., description="The total number of pages visited during the crawl.")
+    depth_reached: int = Field(..., description="The maximum depth reached during the crawl.")
 
-class CrawlerInput(BaseModel):
+class CrawlerInput(JSONBaseModel):
     """Model for input to the web crawler"""
     url: str = Field(..., description="Starting URL to crawl")
     depth: int = Field(default=1, description="How deep to crawl")
@@ -219,14 +170,17 @@ class CrawlerInput(BaseModel):
         default=10, description="Maximum number of pages to crawl"
     )
 
-class PageSummary(BaseModel):
+class PageSummary(JSONBaseModel):
     """Model for summarizing a crawled page"""
-    url: str
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    metadata: Optional[dict] = None
+    url: str = Field(..., description="The URL of the crawled page")
+    title: Optional[str] = Field(..., description="The title of the crawled page")
+    summary: Optional[str] = Field(..., description="A summary of the crawled page")
+    metadata: Optional[dict] = Field(..., description="Metadata extracted from the crawled page")
 
-class CrawlerOutput(BaseModel):
+class CrawlerOutput(JSONBaseModel):
     """Model for output from the web crawler"""
-    summary: PageSummary = Field(default_factory=lambda: PageSummary(url=""), description="Summary of the crawled page")
+    summary: PageSummary = Field(
+        default_factory=lambda: PageSummary(url="", title="", summary="", metadata={}),
+        description="Summary of the crawled page"
+    )
     links: List[dict[str, str]] = Field(default_factory=list, description="List of URLs found during crawling")

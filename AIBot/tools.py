@@ -294,5 +294,6 @@ def _fetch_wiki_page(title: str, intro_only: bool) -> WikiPage:
         title=page.title,
         url=page.url,
         summary=text,
-        links=page.links
+        links=page.links,
+        content=page.content
     )
