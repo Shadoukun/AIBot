@@ -2,30 +2,28 @@ import asyncio
 import io
 import logging
 import random
-from datetime import datetime, timedelta, timezone
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
 import discord
 import matplotlib.pyplot as plt
 import numpy as np
-from pydantic_graph import End
-from pydantic_ai.usage import UsageLimits
 import umap
 from discord.ext import commands
 from discord.utils import escape_mentions
-
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+from pydantic_ai.usage import UsageLimits
 
-from AIBot.prompts import random_message_prompt
 
 from .agents import main_agent, memory_agent, true_false_agent
 from .config import config, write_config, memory_config
 from .memory import CustomAsyncMemory
-from .models import AgentDependencies
-from .util import AgentUtilities, is_admin
+from .models import AgentDependencies, FactResponse
+from .prompts import memory_prompt, random_message_prompt
+from .util import is_admin, is_bot_announcement, remove_command_prefix
 
 # import all the tools after the agents are defined
 from . import tools  # noqa: F401
@@ -34,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_SETTINGS = config.get("OLLAMA", {}).get("MODEL_SETTINGS", {})
 
-class AIBot(commands.Bot, AgentUtilities):
+class AIBot(commands.Bot):
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
         
@@ -62,7 +60,19 @@ class AIBot(commands.Bot, AgentUtilities):
     async def setup_hook(self):
         self.memory = await CustomAsyncMemory.from_config(memory_config)
 
-        self.loop.create_task(memory_timer(self))
+        async def memory_timer(bot):
+            """ Regularly check for new messages to add to memory every 5 minutes."""
+            while True:
+                await asyncio.sleep(5 * 60)  # Wait for 5 minutes
+                await bot.add_memories_task()
+
+        async def seen_messages_timer(bot):
+            """ Regularly clear the seen messages list every 30 minutes."""
+            while True:
+                await asyncio.sleep(30 * 60)  # Wait for 30 minutes
+                bot.seen_messages = []
+        
+        self.loop.create_task(memory_timer(self)) 
         self.loop.create_task(seen_messages_timer(self))
 
     async def on_ready(self):
@@ -118,7 +128,17 @@ class AIBot(commands.Bot, AgentUtilities):
         # Add the message to the message history
         if self.active_conversation(ctx.channel.id):
             self.message_history[ctx.channel.id].append(user_msg(message.content))
-            
+    
+    @staticmethod
+    def update_message_history(history: list[str], new: list[str], max_length: int = 20) -> list[str]:
+        """
+        Trim the message history to the last `max_length` messages.
+        """
+        if len(history) > max_length:
+            return history[-max_length:]
+        history = history + [m for m in new if m not in history]
+        return history      
+    
     
     def is_valid_message(self, message: discord.Message) -> bool:
         """
@@ -141,6 +161,90 @@ class AIBot(commands.Bot, AgentUtilities):
             return False
         
         return True
+    
+    async def check_facts(self, messages: dict[int, list[discord.Message]]) -> dict[int, FactResponse]:
+        """
+        Check the messages for any facts that should be remembered.
+        """
+        parsed: dict[int, list[dict[str, str]]] = {}
+        for channel_id, msgs in messages.items():
+            parsed[channel_id] = []
+            logger.debug(f"check_facts | Checking {len(msgs)} for facts in channel {channel_id}")
+            for msg in msgs:
+                # Skip bot announcements and messages with embeds
+                if len(msg.embeds) > 0 or is_bot_announcement(msg):
+                    continue 
+                    
+                parsed[channel_id].append(
+                    {"role": "assistant" if self.user and msg.author.id == self.user.id else "user",
+                    "content": msg.content,
+                    "user_id": str(msg.author.id)})
+    
+        output = {}
+        for c, msgs in parsed.items():
+            prompt = memory_prompt(msgs)
+            logger.debug(f"check_facts | Running memory agent for channel {c}")
+            res = await self.memory_agent.run(prompt) 
+            if res:
+                output[c] = res.output
+
+        if output:
+            return output
+
+        return {}
+
+    async def add_memories(self, messages: dict[int, list[discord.Message]]) -> list[dict[str, Any]]:
+        """
+        Adds messages to the bot's memories and returns the results.
+        """
+        # checks each channels messages for facts, returns a {channel_id: FactResponse}
+        fact_res: dict[int, FactResponse] = await self.check_facts(messages)
+        if not fact_res:
+            logger.debug("No facts found in watched messages.")
+            return []
+
+        for channel_id, facts in fact_res.items():
+            if not facts.facts:
+                logger.debug(f"No facts to add for channel {channel_id}.")
+                continue
+            
+            logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
+            try:
+                if facts := [{"role": "user",
+                              "content": f"{f.content}" if hasattr(f, 'topic') else f.content,
+                              "topic": f.topic if hasattr(f, 'topic') else ""} for f in facts.facts]:
+
+                    res = await self.memory.add(facts, agent_id=str(self.user.id) if self.user and self.user.id else "", infer=False)
+    
+                    return res.get("results", []) # type: ignore
+            except Exception as e:
+                logger.error(f"Error adding memories for channel {channel_id}: {e}")
+                continue
+            
+        return []
+
+    async def check_watched_channels(self) -> dict[int, list[discord.Message]]:
+        """
+        Check the watched channels for new messages.
+        Returns a dictionary with channel IDs as keys and lists of messages as values.
+        """
+
+        logger.debug("Checking watched channels for new messages...")
+    
+        after = datetime.now(timezone.utc) - timedelta(minutes=5)
+        watched_msgs: dict[int, list[discord.Message]] = {}
+        for c in self.watched_channels:
+            channel: discord.abc.GuildChannel | discord.abc.PrivateChannel | discord.Thread | None = self.get_channel(c)
+            if isinstance(channel, discord.TextChannel):
+                watched_msgs[c] = [
+                    m async for m in channel.history(after=after)
+                    if not is_bot_announcement(m)
+                    and not m.content.startswith(str(self.command_prefix))
+                    and m.id not in self.seen_messages # type: ignore
+                    and len(m.embeds) == 0  # Exclude messages with embeds
+                ]
+
+        return watched_msgs
     
     def check_message_history(self, ctx: commands.Context):
         # Reset message history if it has been more than 5 minutes since the last message to the agent.
@@ -190,7 +294,7 @@ class AIBot(commands.Bot, AgentUtilities):
 
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
-            msg = self.remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
+            msg = remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
             msg = escape_mentions(msg)
         
             memories = []
@@ -260,18 +364,6 @@ class AIBot(commands.Bot, AgentUtilities):
         # reset the bot status
         await self.change_presence(activity=None, status=discord.Status.online)
 
-
-async def memory_timer(bot):
-    """ Regularly check for new messages to add to memory every 5 minutes."""
-    while True:
-        await asyncio.sleep(300)  # Wait for 5 minutes
-        await bot.add_memories_task()  # Run the memory check function
-
-async def seen_messages_timer(bot):
-    """ Regularly clear the seen messages list every 30 minutes."""
-    while True:
-        await asyncio.sleep(1800)  # Wait for 30 minutes
-        bot.seen_messages = []  # Clear the seen messages every 30 minutes
 
 intents = discord.Intents.default()
 intents.message_content = True
