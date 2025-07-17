@@ -247,10 +247,11 @@ class AIBot(commands.Bot):
         """
         while True:
             logger.debug(f"Running agent with query: {query}")
+            history = self.message_history.get(deps.channel.id if deps.channel else 0, [])
             agent_run = await self.agent.run(query, deps=deps, 
                                    usage_limits=UsageLimits(request_limit=5), 
                                    model_settings=MODEL_SETTINGS, 
-                                   message_history=self.message_history[deps.channel.id] if deps.channel else None
+                                   message_history=history
                                    )
             
             if agent_run and agent_run.output:
