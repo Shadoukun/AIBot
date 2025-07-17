@@ -148,11 +148,15 @@ class AIBot(commands.Bot):
         """
         Check if the message is valid for processing.
         """
-        if message.content.startswith(str(self.command_prefix)):
+        if message.content.startswith(str(self.command_prefix)) and not message.content.startswith(f"{self.command_prefix}chat"):
             return False
         if message.content.startswith("BOT:"):
             return False
         
+        # skip code blocks
+        if "```" in message.content:
+            return False
+        # skip messages with URLs
         if "http://" in message.content or "https://" in message.content:
             return False
         
@@ -168,6 +172,9 @@ class AIBot(commands.Bot):
     
     
     def check_message_history(self, ctx: commands.Context):
+        """
+        Check if the message history needs to be reset based on the last message time.
+        """
         # Reset message history if it has been more than 5 minutes since the last message to the agent.
         last_message = self.last_message_was.get(ctx.channel.id, datetime.min.replace(tzinfo=timezone.utc))
 
@@ -175,14 +182,24 @@ class AIBot(commands.Bot):
             self.message_history[ctx.channel.id] = []
         
     async def get_message_history(self, ctx: commands.Context) -> list[ModelMessage]:
-        messages = []
+        """
+        Get the message history for the current channel.
+        If the history is empty, fetch the last 5 messages.
+        """
 
+        messages = []
+        # If the message history is empty, fetch the last 5 messages
         if not self.message_history[ctx.channel.id]:
             async for m in ctx.channel.history(limit=5):
                 if not self.is_valid_message(m):
                     continue
-
-                msg = sys_msg(m.content)
+                # remove the command keyword from the beginning of the message
+                if m.content.startswith(f"{self.command_prefix}chat"):
+                    msg = m.content[5:].strip()
+                else:
+                    msg = m.content.strip()
+                    
+                msg = sys_msg(msg)
                 messages.append(msg)
 
             self.message_history[ctx.channel.id] = messages
