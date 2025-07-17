@@ -21,4 +21,3 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Failed to start the bot: {e}")
         raise e
-    

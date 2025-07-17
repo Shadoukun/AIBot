@@ -1,10 +1,10 @@
 from crawl4ai import (
     AsyncWebCrawler,
-    BrowserConfig, 
-    CacheMode, 
-    CrawlerRunConfig, 
-    DefaultMarkdownGenerator, 
-    PruningContentFilter, 
+    BrowserConfig,
+    CacheMode,
+    CrawlerRunConfig,
+    DefaultMarkdownGenerator,
+    PruningContentFilter,
 )
 
 # crawl4ai browser configuration
@@ -15,12 +15,12 @@ browser_cfg = BrowserConfig(
 
 prune_filter = PruningContentFilter(
         # Lower → more content retained, higher → more content pruned
-        threshold=0.45,           
+        threshold=0.45,
         # "fixed" or "dynamic"
-        threshold_type="dynamic",  
+        threshold_type="dynamic",
         # Ignore nodes with <5 words
         min_word_threshold=5
-              
+
     )
 
 md_generator = DefaultMarkdownGenerator(content_filter=prune_filter)

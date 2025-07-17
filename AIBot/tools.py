@@ -123,7 +123,7 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutput
         logger.debug(f"Skipping duplicate search: {search}")
         return SearchResponse(results=[])
     ctx.deps.searches.append(search) # type: ignore
-    
+
     searches: List[dict[str, str]] = []
     search_usage_limits = UsageLimits(request_limit=20, response_tokens_limit=5000)
     try:
@@ -141,7 +141,7 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutput
                 return agent_run.result.output
             else:
                 return SearchResponse(results=[])
-   
+
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return SearchResponse(results=[])
@@ -149,11 +149,11 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutput
 async def check_duplicate_search_tool(node, run, searches: List[dict[str, str]]) -> bool:
     """
     Checks if the tool call and the query are already in the searches list.
-    
+
     Args:
         node: The current node being processed.
         searches (List[dict[str, str]]): The list of previous searches.
-    
+
     Returns:
         bool: True if the tool call is a duplicate, False otherwise.
     """
@@ -167,14 +167,14 @@ async def check_duplicate_search_tool(node, run, searches: List[dict[str, str]])
                     tool_name = event.part.tool_name
                     text = str(node.model_response.parts[0])
                     search = {tool_name: text}
-        
+
         if search not in searches:
             searches.append(search)
             return False
         else:
             logger.debug(f"Skipping duplicate tool call: {tool_name} : {text}")
             return True
-        
+
     return False
 
 
@@ -254,7 +254,7 @@ async def search_wikipedia(req: WikiCrawlRequest) -> WikiCrawlResponse:
                     queue.append((link_title, d + 1))
 
     logger.debug(f"Visited {len(visited)} pages, depth reached: {min(req.depth, max((d for _, d in queue), default=0))}")
-    
+
     return WikiCrawlResponse(
         pages=pages_out,
         visited=len(visited),
@@ -268,10 +268,10 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
     Crawls a web page and returns a summary of the discovered pages.
 
     Args:
-        input (CrawlerInput): The input parameters for crawling, including the URL, depth, 
+        input (CrawlerInput): The input parameters for crawling, including the URL, depth,
         extraction options, domain filters, maximum pages, and summary inclusion.
     Returns:
-        CrawlerOutput: An object containing a list of PageSummary instances for each crawled page, 
+        CrawlerOutput: An object containing a list of PageSummary instances for each crawled page,
         including URL, title, summary, and metadata.
     Raises:
         Exception: If summarization of a page's text fails, the summary will be set to "Summary failed."
@@ -292,7 +292,7 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
 
     if not crawl_result.success: # type: ignore
         logger.debug(f"Crawl failed: {crawl_result.error_message}") # type: ignore
-    
+
     links = []
     for link in crawl_result.links['internal']: # type: ignore
         if input.domain_filter and not any(domain in link for domain in input.domain_filter):
@@ -315,8 +315,8 @@ async def crawl_page(input: CrawlerInput) -> CrawlerOutput:
         summary=summary if summary else "No summary available.",
         metadata=crawl_result.metadata # type: ignore
     ), links=links)
-    
-    logger.debug(f"Crawled {len(links)} links from {input.url}")   
+
+    logger.debug(f"Crawled {len(links)} links from {input.url}")
     return output
 
 def _fetch_wiki_page(title: str, intro_only: bool) -> WikiPage:

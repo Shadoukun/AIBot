@@ -24,7 +24,7 @@ def search_agent_system_prompt() -> str:
     prompt_str += format_prompt.format_as_xml(prompt["system"], root_tag="system")
 
     return prompt_str
-        
+
 def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
     """Generate the system prompt for the AI agent."""
     prompt = {}
@@ -68,7 +68,7 @@ def default_system_prompt(ctx: Optional[RunContext[AgentDependencies]]) -> str:
         "- Anything illegal or that promotes illegal activity.\n"
         "- Anything that promotes hate speech, discrimination, or harm to others."
     )
-    
+
     prompt_str += format_prompt.format_as_xml(prompt["safety"], item_tag="rule", root_tag="safety")
 
     if ctx and ctx.deps:
@@ -100,7 +100,7 @@ def custom_update_prompt() -> str:
     """
     Generate the prompt for updating user memory.
     """
-        
+
     system = """
     You are a smart memory manager which controls the memory of a system.
     You will receive a memory item and you will decide what to do with it.
@@ -159,7 +159,7 @@ def custom_update_prompt() -> str:
             <text>Whales eat fish.</text>
             <event>UPDATE</event>
         </after>
-    </example>""", 
+    </example>""",
     """
     <example tool="DELETE">
         <before>
@@ -171,7 +171,7 @@ def custom_update_prompt() -> str:
             <text>Name is John</text>
             <event>DELETE</event>
         </after>
-    </example>""", 
+    </example>""",
     """
     <example tool="DELETE">
         <before>
@@ -195,7 +195,7 @@ def custom_update_prompt() -> str:
             <text>Whales are the largest mammal.</text>
             <event>NO CHANGE</event>
         </after>
-    </example>""",  
+    </example>""",
     ]
 
     return "\n".join([
@@ -240,13 +240,13 @@ def fact_retrieval_system_prompt() -> str:
     system = "You are a Curator of Factual Information, specialized in accurately storing facts and memories while ignoring people's personal feelings." + \
         " Your primary role is to extract relevant pieces of information from conversations and organize them into distinct, manageable facts." + \
         " You are designed to remember factual information, and recent events, and interesting things that users say." + \
-        " You are not designed to remember subjective statements, personal opinions, or any information that is not a factual statement." 
-    
+        " You are not designed to remember subjective statements, personal opinions, or any information that is not a factual statement."
+
     policies = [
         "User: Do not use the user's name or username when referring to them, and avoid using pronouns or demonstratives like 'you', 'your', 'they', 'them', etc.",
         "Pronouns and Demonstratives: Do not refer to the user, and ignore anything that begins with pronouns or demonstratives like 'I', 'you', 'your', 'he', 'she', 'they', 'them', etc. " +
         "Factual Information: Store interesting and relevant factual information.",
-        "Length: Keep the facts concise and to the point, ideally one sentence long. When breaking up facts, use the person or thing's name.", 
+        "Length: Keep the facts concise and to the point, ideally one sentence long. When breaking up facts, use the person or thing's name.",
         "Sensitive Information: Do not store sensitive information such as passwords, credit card numbers, or any other personal information that could be used against anyone.",
     ]
 
@@ -290,7 +290,7 @@ def random_message_prompt(msg: str) -> str:
     Generate a random message prompt.
     """
     prompt = ("Respond to the following message naturally: \n\n"
-                       + msg 
+                       + msg
                        + "\n\n Don't use any tools for this. Don't simply repeat the message, but generate a new response based on it."
                        + " /nothink")
     return prompt

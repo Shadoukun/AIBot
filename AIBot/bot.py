@@ -33,7 +33,7 @@ MODEL_SETTINGS = config.get("OLLAMA", {}).get("MODEL_SETTINGS", {})
 class AIBot(commands.Bot):
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
         super().__init__(command_prefix=command_prefix, intents=intents)
-        
+
         self.agent         = main_agent
         self.memory_agent  = memory_agent
 
@@ -51,11 +51,11 @@ class AIBot(commands.Bot):
         """
         if not self.message_history.get(channel_id):
             return False
-        
+
         # Check if the last message was within the last 2 minutes
         last_time = self.last_message_was.get(channel_id, datetime.min.replace(tzinfo=timezone.utc))
         return (datetime.now(timezone.utc) - last_time) < timedelta(minutes=2)
-    
+
     async def setup_hook(self):
         # Initialize the memory handler
         self.memory_handler = await MemoryHandler.create(self)
@@ -71,8 +71,8 @@ class AIBot(commands.Bot):
             while True:
                 await asyncio.sleep(30 * 60)  # Wait for 30 minutes
                 bot.seen_messages = []
-        
-        self.loop.create_task(memory_timer(self)) 
+
+        self.loop.create_task(memory_timer(self))
         self.loop.create_task(seen_messages_timer(self))
 
     async def on_ready(self):
@@ -81,11 +81,11 @@ class AIBot(commands.Bot):
             logger.info('------')
 
         self.bot_channel = self.get_channel(int(config.get("DISCORD", {}).get("bot_channel_id", 0)))
-    
+
     async def on_message(self, message):
         if message.author == self.user:
             return
-        
+
         ctx = await self.get_context(message)
 
         # bot mentioned
@@ -103,12 +103,12 @@ class AIBot(commands.Bot):
             logger.debug("on_message | Random Event")
 
             msg = ctx.message.content
-            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n" 
+            res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n"
                                              + msg + " /nothink") # type: ignore
-            
+
             if res.output.result:
                 logger.debug("on_message | Generating Random Event Message")
-               
+
                 res = await self._agent_run(
                     random_message_prompt(msg),
                     AgentDependencies(bot=self, ctx=ctx, memories=[]),
@@ -117,11 +117,11 @@ class AIBot(commands.Bot):
                 if res.output and res.output.content:
                     logger.debug(f"on_message | Random Event Result: {res.output.content}")
                     await ctx.send(res.output.content)
-        
+
         # Add the message to the message history
         if self.active_conversation(ctx.channel.id) and self.is_valid_message(message):
             self.message_history[ctx.channel.id].append(sys_msg(message.content))
-    
+
     @staticmethod
     def update_message_history(history: list[str], new: list[str], max_length: int = 20) -> list[str]:
         """
@@ -130,9 +130,9 @@ class AIBot(commands.Bot):
         if len(history) > max_length:
             return history[-max_length:]
         history = history + [m for m in new if m not in history]
-        return history      
-    
-    
+        return history
+
+
     def is_valid_message(self, message: discord.Message) -> bool:
         """
         Check if the message is valid for processing.
@@ -143,25 +143,25 @@ class AIBot(commands.Bot):
             return False
         if message.content.startswith("BOT:"):
             return False
-        
+
         # skip code blocks
         if "```" in message.content:
             return False
         # skip messages with URLs
         if "http://" in message.content or "https://" in message.content:
             return False
-        
+
         # Ignore messages with embeds
         if len(message.embeds) > 0:
             return False
-        
+
         # Ignore messages that are too short (lol, etc)
         if len(message.content.strip()) < 5:
             return False
-        
+
         return True
-    
-    
+
+
     def check_message_history(self, ctx: commands.Context):
         """
         Check if the message history needs to be reset based on the last message time.
@@ -171,7 +171,7 @@ class AIBot(commands.Bot):
 
         if datetime.now(timezone.utc) - timedelta(minutes=5) > last_message :
             self.message_history[ctx.channel.id] = []
-        
+
     async def get_message_history(self, ctx: commands.Context) -> list[ModelMessage]:
         """
         Get the message history for the current channel.
@@ -189,7 +189,7 @@ class AIBot(commands.Bot):
                     msg = m.content[5:].strip()
                 else:
                     msg = m.content.strip()
-                    
+
                 msg = sys_msg(msg)
                 messages.append(msg)
 
@@ -199,7 +199,7 @@ class AIBot(commands.Bot):
         else:
             messages = self.message_history[ctx.channel.id]
             return messages
-        
+
     def add_message_to_chat_history(self, ctx: commands.Context, result: AgentRunResult[Any]) -> None:
         """
         Add a message to the bot's message history.
@@ -223,37 +223,37 @@ class AIBot(commands.Bot):
 
         async with ctx.typing():
             user_id = str(self.user.id) if self.user and self.user.id else ""
-            msg = remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "")
-            msg = escape_mentions(msg)
-        
+            query = escape_mentions(remove_command_prefix(ctx.message.content, prefix=ctx.prefix if ctx.prefix else "!"))
+
             memories = []
-            memory_results = await self.memory_handler.memory.search(query=msg, agent_id=user_id, limit=8)
+            memory_results = await self.memory_handler.memory.search(query=query, agent_id=user_id, limit=8)
             for entry in memory_results["results"]:
                 if entry and "memory" in entry:
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
 
-            result = await self._agent_run(msg, AgentDependencies(bot=self, ctx=ctx, memories=memories))
-            
+            result = await self._agent_run(query, AgentDependencies(bot=self, ctx=ctx, memories=memories))
             self.add_message_to_chat_history(ctx, result)
-
             await ctx.send(html.unescape(result.output.response))
 
-    async def _agent_run(self, 
+    async def _agent_run(self,
                          query: str,
-                         deps: AgentDependencies, 
+                         deps: AgentDependencies,
                          ) -> AgentRunResult[Any]:
         """
         Run the agent with the given query and dependencies and limits.
         """
         while True:
             logger.debug(f"Running agent with query: {query}")
-            history = self.message_history.get(deps.channel.id if deps.channel else 0, [])
-            agent_run = await self.agent.run(query, deps=deps, 
-                                   usage_limits=UsageLimits(request_limit=5), 
-                                   model_settings=MODEL_SETTINGS, 
+
+            if not (history := self.message_history.get(deps.channel.id if deps.channel else 0, [])):
+                history = await self.get_message_history(deps.context) # type: ignore
+
+            agent_run = await self.agent.run(query, deps=deps,
+                                   usage_limits=UsageLimits(request_limit=5),
+                                   model_settings=MODEL_SETTINGS,
                                    message_history=history
                                    )
-            
+
             if agent_run and agent_run.output:
                 if isinstance(agent_run.output, FollowUpQuestion):
                     logger.debug(f"Follow-Up Question: {agent_run.output.question}")
@@ -273,7 +273,7 @@ class AIBot(commands.Bot):
                 else:
                     break
         return agent_run
-    
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -313,11 +313,11 @@ async def remove_watched_channel(ctx: commands.Context):
     if isinstance(ctx.channel, discord.abc.GuildChannel):
         if ctx.channel.id in bot.watched_channels:
             bot.watched_channels.remove(ctx.channel.id)
-            
+
             # update config
             config["DISCORD"]["watched_channels"] = bot.watched_channels
             write_config(config, path="config.yaml")
-            
+
             await ctx.message.add_reaction("❌")
         else:
             await ctx.message.add_reaction("🚫")
@@ -379,8 +379,8 @@ async def memories(ctx: commands.Context):
 
     # Optional: annotate a few points
     for i, label in enumerate(labels):
-        plt.text(embedding_2d[i, 0], embedding_2d[i, 1], label, fontsize=6) # only show a few to avoid clutter  
-    
+        plt.text(embedding_2d[i, 0], embedding_2d[i, 1], label, fontsize=6) # only show a few to avoid clutter
+
     plt.title("UMAP projection of ChromaDB embeddings")
     plt.xlabel("X")
     plt.ylabel("Y")
@@ -399,7 +399,7 @@ async def memories(ctx: commands.Context):
 async def delete_memory(ctx: commands.Context, *, memory_content: str):
     """
     Delete a specific memory from the bot's memory.
-    
+
     Args:
         ctx (commands.Context): The context of the command.
         memory_content (str): The content of the memory to delete.
@@ -420,7 +420,7 @@ async def delete_memory(ctx: commands.Context, *, memory_content: str):
         await msg.add_reaction("❌")
 
         def check(reaction, user):
-            return (user == ctx.author and 
+            return (user == ctx.author and
                     reaction.message.id == msg.id and
                     str(reaction.emoji) in ["✅", "❌"])
 
@@ -463,7 +463,7 @@ async def search_memory(ctx: commands.Context, *, query: str):
         await msg.add_reaction("➡️")
 
     def check(reaction, user):
-        return (user == ctx.author and 
+        return (user == ctx.author and
                 reaction.message.id == msg.id and
                 str(reaction.emoji) in ["⬅️", "➡️"])
     try:

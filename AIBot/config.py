@@ -49,6 +49,5 @@ memory_config = {
             "ollama_base_url": "http://localhost:11434",
         },
     },
-    "custom_update_memory_prompt": custom_update_prompt(),
     "custom_fact_extraction_prompt": fact_retrieval_system_prompt(),
 }

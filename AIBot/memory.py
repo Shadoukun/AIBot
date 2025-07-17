@@ -28,7 +28,7 @@ class MemoryHandler:
     async def create(cls, bot) -> 'MemoryHandler':
         """
         Initialize the MemoryHandler with the bot instance.
-        
+
         Args:
             bot: The bot instance to use for memory operations.
 
@@ -38,11 +38,11 @@ class MemoryHandler:
         handler = cls(bot)
         handler.memory = await CustomAsyncMemory.from_config(memory_config)
         return handler
-    
+
     async def check_facts(self, messages: Dict[int, List[discord.Message]]) -> Dict[int, FactResponse]:
         """
         Check the messages for any facts that should be remembered.
-        
+
         Args:
             messages: A dictionary with channel IDs as keys and lists of messages as values.
 
@@ -56,20 +56,20 @@ class MemoryHandler:
             for msg in msgs:
                 # Skip bot announcements and messages with embeds
                 if len(msg.embeds) > 0:
-                    continue 
-                
+                    continue
+
                 parsed[channel_id].append({
                     "role": "assistant" if self.bot.user and msg.author.id == self.bot.user.id else "user",
                     "content": msg.content,
                     "user_id": str(msg.author.id)
                 })
-    
+
         output = {}
         for c, msgs in parsed.items():
             prompt = memory_prompt(msgs)
             logger.debug(f"check_facts | Running memory agent for channel {c}")
             try:
-                res = await self.bot.memory_agent.run(prompt) 
+                res = await self.bot.memory_agent.run(prompt)
                 if res:
                     output[c] = res.output
             except Exception as e:
@@ -97,7 +97,7 @@ class MemoryHandler:
             if not facts.facts:
                 logger.debug(f"No facts to add for channel {channel_id}.")
                 continue
-            
+
             logger.debug(f"add_memories | Processing {len(facts.facts)} messages in channel {channel_id}")
             try:
                 formatted_facts = [
@@ -130,7 +130,7 @@ class MemoryHandler:
         if not watched_msgs:
             logger.debug("add_memories_task | No new messages found for memory check.")
             return
-        
+
         # Add the IDs of the messages to the seen_messages list
         self.seen_messages.extend(msg.id for _, msgs in watched_msgs.items() for msg in msgs)
 
@@ -168,7 +168,7 @@ class MemoryHandler:
             A dictionary with channel IDs as keys and lists of messages as values.
         """
         logger.debug("Checking watched channels for new messages...")
-    
+
         after = datetime.now(timezone.utc) - timedelta(minutes=5)
         watched_msgs: Dict[int, List[discord.Message]] = {}
         for c in self.watched_channels:

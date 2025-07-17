@@ -4,9 +4,8 @@ from copy import deepcopy
 import json
 import logging
 from mem0 import AsyncMemory
-from mem0.memory.telemetry import capture_event
 from mem0.configs.prompts import get_update_memory_messages
-from mem0.memory.utils import process_telemetry_filters, remove_code_blocks
+from mem0.memory.utils import remove_code_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +19,9 @@ class CustomAsyncMemory(AsyncMemory):
         effective_filters: dict,
         infer: bool,
     ):
-        """ 
-        An override for _add_to_vector_store to skip the initial inference step, 
-        but continue to update and delete existing memories as normal. 
+        """
+        An override for _add_to_vector_store to skip the initial inference step,
+        but continue to update and delete existing memories as normal.
         """
         new_retrieved_facts = [f["content"] for f in messages]
         retrieved_old_memory = []
@@ -35,13 +34,14 @@ class CustomAsyncMemory(AsyncMemory):
                 self.vector_store.search,
                 query=new_mem_content,
                 vectors=embeddings,
-                limit=5,
+                limit=10,
                 filters=effective_filters,  # 'filters' is query_filters_for_inference
             )
             return [{"id": mem.id, "text": mem.payload["data"]} for mem in existing_mems]
 
         search_tasks = [process_fact_for_search(fact) for fact in new_retrieved_facts]
         search_results_list = await asyncio.gather(*search_tasks)
+
         for result_group in search_results_list:
             retrieved_old_memory.extend(result_group)
 
@@ -49,7 +49,9 @@ class CustomAsyncMemory(AsyncMemory):
         for item in retrieved_old_memory:
             unique_data[item["id"]] = item
         retrieved_old_memory = list(unique_data.values())
+
         logger.info(f"Total existing memories: {len(retrieved_old_memory)}")
+
         temp_uuid_mapping = {}
         for idx, item in enumerate(retrieved_old_memory):
             temp_uuid_mapping[str(idx)] = item["id"]
@@ -59,6 +61,7 @@ class CustomAsyncMemory(AsyncMemory):
             function_calling_prompt = get_update_memory_messages(
                 retrieved_old_memory, new_retrieved_facts, self.config.custom_update_memory_prompt
             )
+
             try:
                 response = await asyncio.to_thread(
                     self.llm.generate_response,
@@ -68,6 +71,7 @@ class CustomAsyncMemory(AsyncMemory):
             except Exception as e:
                 logger.error(f"Error in new memory actions response: {e}")
                 response = ""
+
             try:
                 response = remove_code_blocks(response)
                 new_memories_with_actions = json.loads(response)
@@ -80,6 +84,7 @@ class CustomAsyncMemory(AsyncMemory):
             memory_tasks = []
             for resp in new_memories_with_actions.get("memory", []):
                 logger.info(resp)
+
                 try:
                     action_text = resp.get("text")
                     if not action_text:
@@ -131,13 +136,8 @@ class CustomAsyncMemory(AsyncMemory):
                         returned_memories.append({"id": mem_id, "memory": resp.get("text"), "event": event_type})
                 except Exception as e:
                     logger.error(f"Error awaiting memory task (async): {e}")
+
         except Exception as e:
             logger.error(f"Error in memory processing loop (async): {e}")
 
-        keys, encoded_ids = process_telemetry_filters(effective_filters)
-        capture_event(
-            "mem0.add",
-            self,
-            {"version": self.api_version, "keys": keys, "encoded_ids": encoded_ids, "sync_type": "async"},
-        )
         return returned_memories
