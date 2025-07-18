@@ -97,113 +97,167 @@ def true_false_system_prompt() -> str:
     ])
 
 def custom_update_prompt() -> str:
-    """
-    Generate the prompt for updating user memory.
-    """
+    prompt = """\
+You are a smart memory manager which controls the memory of a system.
+You intelligently manage and update the memory based on new facts and information.
+You will receive a memory item and you will decide what to do with it.
+You can perform the following four operations.
 
-    system = """
-    You are a smart memory manager which controls the memory of a system.
-    You will receive a memory item and you will decide what to do with it.
-    You can perform four operations: (1) add into the memory, (2) update the memory, (3) delete from the memory, and (4) no change.
-    """
-
-    tools = [
+    "operations": [
         {
             "name": "ADD",
-            "description": "Add a new memory item.",
+            "description": "Add the information as a new memory element.",
+            "rules": [
+                "Include the subject's name in the text.",
+                "Use clear and concise language."
+            ]
         },
         {
             "name": "UPDATE",
-            "description": "Update an existing memory item."
+            "description": "Update an existing memory element with new information",
+            "rules": [
+                "Include the subject's name in the text.",
+                "Use clear and concise language."
+            ]
         },
         {
             "name": "DELETE",
-            "description": "Delete a memory item."
+            "description": "Delete an existing memory element",
+            "rules": [
+                "remove poorly formatted memories. Remove memories that are not relevant or useful.",
+                "Remove memories that begin with 'User'",
+                "Use clear and concise language."
+            ]
         },
         {
-            "name": "NO CHANGE",
-            "description": "No change to the memory item."
+            "name": "NONE",
+            "description": "Make no change (if the fact is already present or irrelevant)"
         }
-    ]
+    ],
 
-    rules = {
-        "ALL": "All memories must include names and relevant information. Make sure to include a unique ID.",
-        "ADD": "Make sure to include a unique ID.",
-        "UPDATE": "Make sure to keep the existing ID.",
-        "DELETE": "Make sure to keep the existing ID.",
-        "NO CHANGE": "No change to the memory item.",
-    }
+There are specific guidelines to select which operation to perform:
 
-    examples = [
-    """
-    <example tool="ADD">
-        <before>
-            <id>0</id>
-            <text>Whales are the largest mammal.</text>
-            <event>NONE</event>
-        </before>
-        <after>
-            <id>0</id>
-            <text>Whales are the largest mammal.</text>
-            <event>ADD</event>
-        </after>
-    </example>""",
-    """
-    <example tool="UPDATE">
-        <before>
-            <id>0</id>
-            <text>Whales eat fish.</text>
-        </before>
-        <after>
-            <id>0</id>
-            <text>Whales eat fish.</text>
-            <event>UPDATE</event>
-        </after>
-    </example>""",
-    """
-    <example tool="DELETE">
-        <before>
-            <id>1</id>
-            <text>Name is John</text>
-        </before>
-        <after>
-            <id>1</id>
-            <text>Name is John</text>
-            <event>DELETE</event>
-        </after>
-    </example>""",
-    """
-    <example tool="DELETE">
-        <before>
-            <id>0</id>
-            <text>He was a software engineer.</text>
-        </before>
-        <after>
-            <id>0</id>
-            <text>He was a software engineer.</text>
-            <event>DELETE</event>
-        </after>
-    </example>""",
-    """
-    <example tool="NO CHANGE">
-        <before>
-            <id>0</id>
-            <text>Whales are the largest mammal.</text>
-        </before>
-        <after>
-            <id>0</id>
-            <text>Whales are the largest mammal.</text>
-            <event>NO CHANGE</event>
-        </after>
-    </example>""",
-    ]
-
-    return "\n".join([
-    format_prompt.format_as_xml(system, item_tag="system", root_tag="system"),
-    format_prompt.format_as_xml(tools, item_tag="tool", root_tag="tools"),
-    format_prompt.format_as_xml(rules, item_tag="rule", root_tag="rules"),
-    "\n".join(examples)
-])
+guidelines = {
+    "ADD": {
+        "description": "If the retrieved facts contain new information not present in the memory, \
+                        then you have to add it by generating a new ID in the id field.",
+        "example": {
+            "old_memory": [
+                {
+                    "id": "0",
+                    "text": "Whales are mammals."
+                }
+            ],
+            "retrieved_facts": ["The Sun is a star."],
+            "new_memory": {
+                "memory": [
+                    {
+                        "id": "0",
+                        "text": "Whales are mammals.",
+                        "event": "NONE"
+                    },
+                    {
+                        "id": "1",
+                        "text": "The Sun is a star.",
+                        "event": "ADD"
+                    }
+                ]
+            }
+        }
+    },
+    "UPDATE": {
+        "description": "If the retrieved facts contain information that is already present \
+                        in the memory but the information is more detailed or different, then you have to update it. \
+                        Example (a) -- if the memory contains "The sun is a star" and the retrieved fact is "The sun is a yellow dwarf star", then update the memory with the retrieved fact.
+                        Example (b) -- if the memory contains "The Eiffel Tower is in Paris" and the retrieved fact is "The Eiffel Tower is located in Paris, France", then update the memory.",
+        "examples": [
+            {
+                "old_memory": [
+                    {
+                        "id": "0",
+                        "text": "The sun is a star."
+                    }
+                ],
+                "retrieved_facts": ["The sun is a yellow dwarf star."],
+                "new_memory": {
+                    "memory": [
+                        {
+                            "id": "0",
+                            "text": "The sun is a yellow dwarf star.",
+                            "event": "UPDATE",
+                            "old_memory": "The sun is a star."
+                        }
+                    ]
+                }
+            },
+            {
+                "old_memory": [
+                    {
+                        "id": "0",
+                        "text": "The Eiffel Tower is in Paris."
+                    }
+                ],
+                "retrieved_facts": ["The Eiffel Tower is located in Paris, France."],
+                "new_memory": {
+                    "memory": [
+                        {
+                            "id": "0",
+                            "text": "The Eiffel Tower is located in Paris, France.",
+                            "event": "UPDATE",
+                            "old_memory": "The Eiffel Tower is in Paris."
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "DELETE": {
+        "description": "If the retrieved facts contain information that contradicts the information present in the memory, \
+                        then you have to delete it.",
+        "example": {
+            "old_memory": [
+                {
+                    "id": "0",
+                    "text": "Dinosaurs are still alive."
+                }
+            ],
+            "retrieved_facts": ["Dinosaurs are extinct."],
+            "new_memory": {
+                "memory": [
+                    {
+                        "id": "0",
+                        "text": "Dinosaurs are still alive.",
+                        "event": "DELETE"
+                    }
+                ]
+            }
+        }
+    },
+    "NONE": {
+        "description": "If the retrieved facts contain information that is already present in the memory, \
+                        then you do not need to make any changes.",
+        "example": {
+            "old_memory": [
+                {
+                    "id": "0",
+                    "text": "Whales are the largest mammal."
+                }
+            ],
+            "retrieved_facts": ["Whales are one of the largest mammals."],
+            "new_memory": {
+                "memory": [
+                    {
+                        "id": "0",
+                        "text": "Whales are the largest mammal.",
+                        "event": "NONE"
+                    }
+                ]
+            }
+        }
+    },
+}
+"""
+    return prompt
 
 def memory_prompt(messages: list[dict]) -> str:
     conversation = "\n".join(
@@ -292,5 +346,27 @@ def random_message_prompt(msg: str) -> str:
     prompt = ("Respond to the following message naturally: \n\n"
                        + msg
                        + "\n\n Don't use any tools for this. Don't simply repeat the message, but generate a new response based on it."
-                       + " /nothink")
+                       + " /no_think")
+    return prompt
+
+def random_search_prompt(msg: str) -> str:
+    """
+    Generate a random search prompt.
+    """
+    prompt = f"""Get the content of the following URL: {msg}\n\n \
+                    Do not modify the content in any way, just return the content as is.\n\n \
+                    If the post is from social media, include the username before the content and remove any incomplete URLs or links ending with "..."
+
+                Example:\n\n
+                    Before:
+                        "The sky is blue. Check this out: https://example.com/post/12345"
+                    After:
+                        "@username: The sky is blue. Check this out: https://example.com/post/12345"
+
+                If the post is from a news website, include the title and then the content, like this:
+
+                Example:\n\n
+                    Breaking News: Major Earthquake Hits City\n\n
+                    A major earthquake has struck the city, causing widespread damage and panic among residents...
+                """
     return prompt

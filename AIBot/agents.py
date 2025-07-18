@@ -52,7 +52,7 @@ main_agent = Agent(
 SearchOutputType = Union[FollowUpQuestion, SearchResponse]
 
 # Search agent for handling search queries
-search_agent = Agent[None, SearchOutputType](
+search_agent = Agent[AgentDependencies, SearchOutputType](
             model=openrouter_model,
             instructions=[search_agent_system_prompt],
             tools=[tavily_search_tool(config.get("TAVILY_API_KEY"))], # type: ignore

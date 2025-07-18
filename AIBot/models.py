@@ -1,4 +1,5 @@
-from typing import List, Optional, Literal
+from typing import Any, List, Optional, Literal, Union
+from atproto import Client
 from pydantic import BaseModel, Field, PositiveInt, ValidationError
 from mem0 import AsyncMemory
 from discord.ext import commands
@@ -24,6 +25,7 @@ class User(BaseModel):
 class AgentDependencies:
     """Dependencies for the main agent, including user and context information."""
     user_list  : Optional[list[User]]
+    bot        : commands.Bot
     agent      : Optional[User]
     user       : Optional[User]
     channel    : Optional[GuildChannel]
@@ -32,9 +34,11 @@ class AgentDependencies:
     memory     : Optional[AsyncMemory] = None
     memories   : Optional[list[str]] = None
     bot_channel: Optional[GuildChannel] = None
-    searches   : List[dict[str, str]] = []
+    searches   : List[dict[str, Any]] = []
+    atproto_client: Optional[Client] = None
 
     def __init__(self, bot, ctx: commands.Context, memories: Optional[list[str]] = None):
+        self.bot = bot
         self.agent = User(
             id          = str(bot.user.id) if bot.user else "None",
             name        = bot.user.name if bot.user else "None",
@@ -59,6 +63,8 @@ class AgentDependencies:
         self.memories   = memories
         self.message_id = str(ctx.message.id) if ctx.message else "None"
         self.bot_channel= bot.bot_channel if hasattr(bot, 'bot_channel') else None
+        self.searches   = []
+        self.atproto_client = bot.atproto_client if hasattr(bot, 'atproto_client') else None
 
 class BasicResponse(JSONBaseModel):
     """Base model for responses from agents"""
@@ -179,3 +185,9 @@ class CrawlerOutput(JSONBaseModel):
         description="Summary of the crawled page"
     )
     links  : List[dict[str, str]] = Field(default_factory=list, description="List of URLs found during crawling")
+
+class BlueSkyPost(JSONBaseModel):
+    """Model for a BlueSky post"""
+    username: str = Field(..., description="The username of the post author.")
+    content : str = Field(..., description="The content of the post.")
+    url     : str = Field(..., description="The URL of the post.")

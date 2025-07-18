@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 import html
 
+from atproto import Client
 import discord
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,11 +18,12 @@ from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import UsageLimits
 
-from .agents import main_agent, memory_agent, true_false_agent
+from .agents import main_agent, memory_agent, true_false_agent, search_agent
 from .config import config, write_config
 from .models import AgentDependencies, FollowUpQuestion
-from .prompts import random_message_prompt
+from .prompts import random_message_prompt, random_search_prompt
 from .util import is_admin, remove_command_prefix, user_msg, sys_msg
+from urllib.parse import urlparse
 
 # import all the tools after the agents are defined
 from . import tools  # noqa: F401
@@ -29,6 +31,9 @@ from . import tools  # noqa: F401
 logger = logging.getLogger(__name__)
 
 MODEL_SETTINGS = config.get("OLLAMA", {}).get("MODEL_SETTINGS", {})
+atproto_config = config.get("bluesky", {})
+atproto_client = Client()
+atproto_client.login(atproto_config.get("username"), atproto_config.get("app_password"))
 
 class AIBot(commands.Bot):
     def __init__(self, command_prefix: str, intents: discord.Intents, **options: dict):
@@ -36,6 +41,7 @@ class AIBot(commands.Bot):
 
         self.agent         = main_agent
         self.memory_agent  = memory_agent
+        self.atproto_client = atproto_client
 
         self.watched_channels:   list[int] = config.get("DISCORD", {}).get("watched_channels", [])
         self.watched_domains:    list[str] = config.get("DISCORD", {}).get("watched_domains", [])
@@ -98,23 +104,54 @@ class AIBot(commands.Bot):
             logger.debug(f"on_message | Bot Command | {message.content}")
             await self.process_commands(message)
 
+        elif "http://" in message.content or "https://" in message.content:
+            # Check if the message contains a URL
+            # Extract the domain name from the URL
+            parsed_url = urlparse(message.content)
+            domain_name = parsed_url.netloc
+            if not domain_name:
+                return
+
+            if any(domain in domain_name for domain in self.watched_domains):
+
+                res = await search_agent.run(random_search_prompt(message.content),
+                    deps=AgentDependencies(bot=self, ctx=ctx, memories=[]),
+                    usage_limits=UsageLimits(request_limit=5),
+                    message_history=None) # type: ignore
+
+                if res and res.output:
+                    logger.debug(f"on_message | URL Result: {res.output}")
+                    await ctx.channel.send(res.output) # type: ignore
+
+
         # random event
         elif random.random() < 0.05:
             logger.debug("on_message | Random Event")
 
+            # Check if the channel is watched
+            if ctx.channel.id not in self.watched_channels:
+                logger.debug(f"on_message | Channel {ctx.channel.id} not watched, skipping random event.")
+                return
+
+            # get the message history for the channel, if it doesn't exist, get the last 5 messages
+            if not (message_history := self.message_history.get(ctx.channel.id, [])):
+                message_history = await self.get_message_history(ctx)
+
             msg = ctx.message.content
             res = await true_false_agent.run("Does the following message contain anything worth replying to? \n\n"
-                                             + msg + " /nothink") # type: ignore
+                                             + msg + " /no_think", message_history=message_history) # type: ignore
 
+            # if the msg is worth replying to
             if res.output.result:
                 logger.debug("on_message | Generating Random Event Message")
 
                 res = await self._agent_run(
                     random_message_prompt(msg),
                     AgentDependencies(bot=self, ctx=ctx, memories=[]),
+                    message_history=message_history
                 )
 
-                if res.output and res.output.content:
+                if res and res.output and res.output.content:
                     logger.debug(f"on_message | Random Event Result: {res.output.content}")
                     await ctx.send(res.output.content)
 
@@ -232,48 +269,64 @@ class AIBot(commands.Bot):
                     memories.append(entry["memory"].format(user=ctx.author.display_name if ctx.author else "User"))
 
             result = await self._agent_run(query, AgentDependencies(bot=self, ctx=ctx, memories=memories))
+            if not result:
+                await ctx.send("Sorry, I couldn't process your request.")
+                return
             self.add_message_to_chat_history(ctx, result)
             await ctx.send(html.unescape(result.output.response))
 
     async def _agent_run(self,
                          query: str,
                          deps: AgentDependencies,
-                         ) -> AgentRunResult[Any]:
+                         message_history: list[ModelMessage] = None # type: ignore
+                         ) -> AgentRunResult[Any] | None:
         """
         Run the agent with the given query and dependencies and limits.
         """
-        while True:
-            logger.debug(f"Running agent with query: {query}")
-
-            if not (history := self.message_history.get(deps.channel.id if deps.channel else 0, [])):
-                history = await self.get_message_history(deps.context) # type: ignore
-
-            agent_run = await self.agent.run(query, deps=deps,
-                                   usage_limits=UsageLimits(request_limit=5),
-                                   model_settings=MODEL_SETTINGS,
-                                   message_history=history
-                                   )
-
-            if agent_run and agent_run.output:
-                if isinstance(agent_run.output, FollowUpQuestion):
-                    logger.debug(f"Follow-Up Question: {agent_run.output.question}")
-                    # Ask the user a follow-up question
-                    await deps.context.channel.send(agent_run.output.question) # type: ignore
-                    # Wait for the user's response
-                    try:
-                        logger.debug("Waiting for user response to follow-up question...")
-                        response = await self.wait_for('message', timeout=60.0, check=lambda m: m.author == deps.context.author) # type: ignore
-                        # append the follow up question and the user's response to the message history
-                        self.message_history[deps.channel.id].append(agent_run.new_messages()[0]) # type: ignore
-                        self.message_history[deps.channel.id].append(user_msg(response.content)) # type: ignore
-                        continue
-                    except asyncio.TimeoutError:
-                        logger.debug("No response received for clarification question.")
-                        return agent_run
+        try:
+            while True:
+                logger.debug(f"Running agent with query: {query}")
+                # failsafe check for message history
+                if message_history:
+                    history = message_history
                 else:
-                    break
-        return agent_run
+                    if not (history := self.message_history.get(deps.channel.id if deps.channel else 0, [])):
+                        history = await self.get_message_history(deps.context) # type: ignore
 
+                agent_run = await self.agent.run(query, deps=deps,
+                                    usage_limits=UsageLimits(request_limit=5),
+                                    model_settings=MODEL_SETTINGS,
+                                    message_history=history
+                                    )
+
+                # reset the bot's status to online after the agent run in case any tools changed it
+                if self.status != discord.Status.dnd:
+                    await self.change_presence(status=discord.Status.online) # type: ignore
+
+                if agent_run and agent_run.output:
+                    if isinstance(agent_run.output, FollowUpQuestion):
+                        logger.debug(f"Follow-Up Question: {agent_run.output.question}")
+                        # Ask the user a follow-up question
+                        await deps.context.channel.send(agent_run.output.question) # type: ignore
+                        # Wait for the user's response
+                        try:
+                            logger.debug("Waiting for user response to follow-up question...")
+                            response = await self.wait_for('message', timeout=60.0, check=lambda m: m.author == deps.context.author) # type: ignore
+                            # append the follow up question and the user's response to the message history
+                            self.message_history[deps.channel.id].append(agent_run.new_messages()[0]) # type: ignore
+                            self.message_history[deps.channel.id].append(user_msg(response.content)) # type: ignore
+                            continue
+                        except asyncio.TimeoutError:
+                            logger.debug("No response received for clarification question.")
+                            return agent_run
+                    else:
+                        break
+            return agent_run
+        except Exception as e:
+            logger.error(f"Agent run failed: {e}")
+            if self.status != discord.Status.dnd:
+                await self.change_presence(status=discord.Status.online) # type: ignore
+            return None
 
 intents = discord.Intents.default()
 intents.message_content = True

@@ -1,8 +1,12 @@
+from asyncio import run
+import html
 import logging
 import random
 from datetime import datetime
 from typing import List, Set
 
+from atproto import AtUri
+import discord
 from pydantic_graph import End
 import wikipedia
 from crawl4ai import AsyncWebCrawler
@@ -14,8 +18,10 @@ from pydantic_ai.messages import FunctionToolCallEvent
 
 from .agents import SearchOutputType, main_agent, search_agent, summary_agent
 from .crawler import browser_cfg, run_config
+import re
 from .models import (
     AgentDependencies,
+    BlueSkyPost,
     CrawlerInput,
     CrawlerOutput,
     DateTimeResponse,
@@ -117,27 +123,55 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutput
     """
     logger.debug(f"Search Query: {query}")
 
-    # keep the main agent from running the same search multiple times
-    search = {ctx.deps.channel.id: query} # type: ignore
-    if search in ctx.deps.searches:
-        logger.debug(f"Skipping duplicate search: {search}")
-        return SearchResponse(results=[])
-    ctx.deps.searches.append(search) # type: ignore
+    # Avoid running the same search multiple times
+    search = next((s for s in ctx.deps.searches if s.get("query") == query.lower()), None)
+    print(search)
+    if search:
+        logger.debug(f"Skipping duplicate search: {query}")
+        return search["response"] + "\n\n You already searched for this query. You should finish up the reqest."
 
-    searches: List[dict[str, str]] = []
-    search_usage_limits = UsageLimits(request_limit=20, response_tokens_limit=5000)
     try:
+        search = {}
+        searches: List[dict[str, str]] = []
+        search_usage_limits = UsageLimits(request_limit=20, response_tokens_limit=2000)
         # try to run the search agent with the given query
-        async with search_agent.iter(query, usage_limits=search_usage_limits) as agent_run:
+        async with search_agent.iter(query, deps=ctx.deps, usage_limits=search_usage_limits) as agent_run:
             node = agent_run.next_node
             while not isinstance(node, End):
-                # keep the search agent from using the same tools multiple times
-                if await check_duplicate_search_tool(node, agent_run, searches):
-                    continue
-                else:
-                    node = await agent_run.next(node)
+
+                # Iterate over tool calls
+                if isinstance(node, CallToolsNode):
+                    async with node.stream(agent_run.ctx) as handle_stream:
+                        async for event in handle_stream:
+                            if isinstance(event, FunctionToolCallEvent):
+                                tool_name = event.part.tool_name
+                                text = str(node.model_response.parts[0])
+                                search = {"tool_name": tool_name, "query": text}
+
+                                # Check if the search is already in searches
+                                for s in searches:
+                                    if s.get("tool_name") == tool_name and s.get("query") == text:
+                                        logger.debug(f"Skipping duplicate tool call: {tool_name} : {text}")
+                                        break
+                                searches.append(search)
+
+                                # Set bot status if not already busy
+                                msg = ""
+                                if tool_name == "tavily_search_tool":
+                                    msg = "Searching Tavily..."
+                                elif tool_name == "urbandictionary_lookup":
+                                    msg = "Searching Urban Dictionary..."
+                                elif tool_name == "search_wikipedia":
+                                    msg = "Searching Wikipedia..."
+                                if msg and ctx.deps.bot.status != discord.Status.dnd:
+                                    await ctx.deps.bot.change_presence( # type: ignore
+                                        activity=discord.CustomActivity(name=msg), status=discord.Status.online) # type: ignore
+
+                node = await agent_run.next(node)
 
             if agent_run.result:
+                # append the search result to the context's searches
+                ctx.deps.searches.append({"query": query.lower(),"response": agent_run.result.output}) # type: ignore
                 return agent_run.result.output
             else:
                 return SearchResponse(results=[])
@@ -146,42 +180,44 @@ async def search(ctx: RunContext[AgentDependencies], query: str) -> SearchOutput
         logger.error(f"Search failed: {e}")
         return SearchResponse(results=[])
 
-async def check_duplicate_search_tool(node, run, searches: List[dict[str, str]]) -> bool:
+@search_agent.tool
+async def get_bluesky_post(ctx: RunContext[AgentDependencies], url: str) -> BlueSkyPost:
     """
-    Checks if the tool call and the query are already in the searches list.
+    Retrieves a BlueSky post by its URL.
 
     Args:
-        node: The current node being processed.
-        searches (List[dict[str, str]]): The list of previous searches.
-
+        ctx (RunContext[AgentDependencies]): The context containing dependencies for the agent.
+        url (str): The URL of the BlueSky post to retrieve.
     Returns:
-        bool: True if the tool call is a duplicate, False otherwise.
+        BlueSkyPost: An object containing the username, content, and URL of the post.
+    Raises:
+        ValueError: If the post is not found for the given URL.
     """
-    search = {}
-    if isinstance(node, CallToolsNode):
-        # add search results/tool call to the list of searches and skip duplicate tool calls
-        async with node.stream(run.ctx) as handle_stream:
-            async for event in handle_stream:
-                # Check if the event is a tool call event, and extract the tool name
-                if isinstance(event, FunctionToolCallEvent):
-                    tool_name = event.part.tool_name
-                    text = str(node.model_response.parts[0])
-                    search = {tool_name: text}
+    if not ctx.deps.atproto_client:
+        raise ValueError("ATProto client is not available in the context dependencies.")
 
-        if search not in searches:
-            searches.append(search)
-            return False
-        else:
-            logger.debug(f"Skipping duplicate tool call: {tool_name} : {text}")
-            return True
+    if match := re.search(r"https://bsky\.app/profile/([^/]+)/post/([^/]+)", url):
+        username = match.group(1)
+        post_id = match.group(2)
+        POST_URI = f"at://{username}/app.bsky.feed.post/{post_id}"
+        post = ctx.deps.atproto_client.app.bsky.feed.post.get(username, AtUri.from_str(POST_URI).rkey)
+        if not post:
+            raise ValueError(f"Post not found for URL: {url}")
 
-    return False
-
+        return BlueSkyPost(
+            username=username,
+            # remove escaped \n characters from the content
+            content=post.value.text.replace("\\n", "\n"),
+            url=url,
+        )
+    else:
+        raise ValueError(f"Invalid BlueSky URL: {url}")
 
 @search_agent.tool_plain
 async def urbandictionary_lookup(req: LookupUrbanDictRequest) -> list[UrbanDefinition]:
     """
     Looks up the given term on Urban Dictionary and returns a list of definitions.
+    Only use for dictionary-style lookups, not for general search queries.
     Args:
         req (LookupUrbanDictRequest): The request containing the term to look up.
     Returns:
