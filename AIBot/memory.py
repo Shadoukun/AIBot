@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 import discord
 
 from AIBot.util import is_bot_announcement
-from .models import FactResponse
+from .models import Fact, FactResponse
 from .asyncmemory import CustomAsyncMemory
 from .config import config, memory_config
 from .prompts import memory_prompt
@@ -50,19 +50,6 @@ class MemoryHandler:
             A dictionary with channel IDs as keys and FactResponse objects as values.
         """
         parsed: Dict[int, List[Dict[str, str]]] = {}
-
-        # Parse extra memories if they exist
-        if self.bot.extra_memories:
-            for m in self.bot.extra_memories:
-                channel_id = int(m.get("channel_id", 0))
-                if channel_id not in parsed:
-                    parsed[channel_id] = []
-                parsed[channel_id].append({
-                    "role": "user",
-                    "content": m.get("content", ""),
-                    "user_id": m.get("user_id", "")
-                })
-
         for channel_id, msgs in messages.items():
             parsed[channel_id] = []
             logger.debug(f"check_facts | Checking {len(msgs)} messages for facts in channel {channel_id}")
@@ -87,6 +74,12 @@ class MemoryHandler:
                     output[c] = res.output
             except Exception as e:
                 logger.error(f"Error running memory agent for channel {c}: {e}")
+
+        # Parse extra memories if they exist
+        if self.bot.extra_memories:
+            output[0] = FactResponse(
+                facts=[Fact(topic="", content=m['content'],) for m in self.bot.extra_memories],
+            )
 
         return output
 
