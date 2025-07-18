@@ -49,7 +49,7 @@ main_agent = Agent(
             output_type=OutputType, # type: ignore
         )
 
-SearchOutputType = Union[FollowUpQuestion, SearchResponse]
+SearchOutputType = Union[FollowUpQuestion, SearchResponse, str]
 
 # Search agent for handling search queries
 search_agent = Agent[AgentDependencies, SearchOutputType](

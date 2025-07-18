@@ -203,6 +203,8 @@ async def get_bluesky_post(ctx: RunContext[AgentDependencies], url: str) -> Blue
         post = ctx.deps.atproto_client.app.bsky.feed.post.get(username, AtUri.from_str(POST_URI).rkey)
         if not post:
             raise ValueError(f"Post not found for URL: {url}")
+        if not post.value.text:
+            raise ValueError(f"Post text is empty for URL: {url}")
 
         return BlueSkyPost(
             username=username,

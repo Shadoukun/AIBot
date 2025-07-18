@@ -50,6 +50,8 @@ class AIBot(commands.Bot):
         self.seen_cleared_at   = datetime.now(timezone.utc)
         self.memory_checked_at = datetime.now(timezone.utc)
         self.last_message_was:   dict[int, datetime] = {}
+        # memories that aren't necessarily from messages, and are injected outside the message history
+        self.extra_memories:     list[dict[str, str]] = []
 
     def active_conversation(self, channel_id: int) -> bool:
         """
@@ -105,24 +107,30 @@ class AIBot(commands.Bot):
             await self.process_commands(message)
 
         elif "http://" in message.content or "https://" in message.content:
-            # Check if the message contains a URL
             # Extract the domain name from the URL
             parsed_url = urlparse(message.content)
             domain_name = parsed_url.netloc
             if not domain_name:
                 return
 
+            # if a domain is in the watched domains, search for it
             if any(domain in domain_name for domain in self.watched_domains):
-
                 res = await search_agent.run(random_search_prompt(message.content),
                     deps=AgentDependencies(bot=self, ctx=ctx, memories=[]),
                     usage_limits=UsageLimits(request_limit=5),
+                    output_type=str,
                     message_history=None) # type: ignore
 
+                # append the result to the extra memories
                 if res and res.output:
                     logger.debug(f"on_message | URL Result: {res.output}")
-                    await ctx.channel.send(res.output) # type: ignore
+                    self.extra_memories.append({
+                        "content": res.output,
+                        "user_id": str(ctx.author.id),
+                        "channel_id": str(ctx.channel.id),
+                    }) # type: ignore
 
+                    await ctx.channel.send(res.output) # type: ignore
 
         # random event
         elif random.random() < 0.05:

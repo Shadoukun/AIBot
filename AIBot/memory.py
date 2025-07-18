@@ -50,6 +50,19 @@ class MemoryHandler:
             A dictionary with channel IDs as keys and FactResponse objects as values.
         """
         parsed: Dict[int, List[Dict[str, str]]] = {}
+
+        # Parse extra memories if they exist
+        if self.bot.extra_memories:
+            for m in self.bot.extra_memories:
+                channel_id = int(m.get("channel_id", 0))
+                if channel_id not in parsed:
+                    parsed[channel_id] = []
+                parsed[channel_id].append({
+                    "role": "user",
+                    "content": m.get("content", ""),
+                    "user_id": m.get("user_id", "")
+                })
+
         for channel_id, msgs in messages.items():
             parsed[channel_id] = []
             logger.debug(f"check_facts | Checking {len(msgs)} messages for facts in channel {channel_id}")
@@ -133,7 +146,6 @@ class MemoryHandler:
 
         # Add the IDs of the messages to the seen_messages list
         self.seen_messages.extend(msg.id for _, msgs in watched_msgs.items() for msg in msgs)
-
         # Change bot status to busy
         await self.bot.change_presence(
             activity=discord.CustomActivity(name="Updating Memory..."), status=discord.Status.dnd)
@@ -158,6 +170,7 @@ class MemoryHandler:
                     await self.bot.bot_channel.send(embed=embed)
 
         # Reset the bot status
+        self.bot.extra_memories.clear()  # Clear extra memories after processing
         await self.bot.change_presence(activity=None, status=discord.Status.online)
 
     async def check_watched_channels(self) -> Dict[int, List[discord.Message]]:
